@@ -1227,6 +1227,37 @@ void main() {
       expect(step.formattedInstructionWithSteps(isKannada: true), 'Turn left onto MG Road (ಸುಮಾರು 60 ಹೆಜ್ಜೆಗಳು)');
     });
 
+    test('DetectedVisionItem records overhead hazards and estimated distance', () {
+      const item = DetectedVisionItem(
+        label: 'branch',
+        confidence: 0.85,
+        boundingBox: Rect.fromLTWH(100, 50, 200, 150),
+        position: 'center',
+        proximity: 'close',
+        isOverheadHazard: true,
+        estimatedDistanceMeters: 1.8,
+      );
+
+      expect(item.isOverheadHazard, isTrue);
+      expect(item.estimatedDistanceMeters, 1.8);
+      expect(item.toString(), contains('overhead'));
+      expect(item.toString(), contains('1.8m'));
+    });
+
+    test('VoiceCommandParser supports conversational shortcuts like go home and walk to work', () {
+      final cmdHome1 = VoiceCommandParser.parse('go home', 'Alice');
+      expect(cmdHome1.type, VoiceCommandType.takeMeTo);
+      expect(cmdHome1.argument, 'home');
+
+      final cmdHome2 = VoiceCommandParser.parse('take me home', 'Alice');
+      expect(cmdHome2.type, VoiceCommandType.takeMeTo);
+      expect(cmdHome2.argument, 'home');
+
+      final cmdWork = VoiceCommandParser.parse('walk to work', 'Alice');
+      expect(cmdWork.type, VoiceCommandType.takeMeTo);
+      expect(cmdWork.argument, 'work');
+    });
+
     testWidgets('SettingsScreen displays Directional Turn Haptics and Favorite Places', (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
       final storage = await StorageService.initialize();

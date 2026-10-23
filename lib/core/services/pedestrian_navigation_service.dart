@@ -32,11 +32,24 @@ class PedestrianNavigationService extends ChangeNotifier {
   StreamSubscription<Position>? _positionStreamSub;
   DateTime? _lastInstructionAnnouncementTime;
   int _lastAnnouncedStepIndex = -1;
+  double _smoothedHeading = -1.0;
 
   PedestrianNavigationService({
     required this.ttsService,
     this.storageService,
   });
+
+  /// Applies circular exponential moving average (EMA) to prevent compass jitter and 0°/360° jump.
+  double updateSmoothedHeading(double rawHeading) {
+    if (rawHeading < 0) return _smoothedHeading;
+    if (_smoothedHeading < 0) {
+      _smoothedHeading = rawHeading;
+      return _smoothedHeading;
+    }
+    final double diff = (rawHeading - _smoothedHeading + 180) % 360 - 180;
+    _smoothedHeading = (_smoothedHeading + diff * 0.35 + 360) % 360;
+    return _smoothedHeading;
+  }
 
   NavigationStatus get status => _status;
   String get statusMessage => _statusMessage;
@@ -239,7 +252,8 @@ class PedestrianNavigationService extends ChangeNotifier {
     pos ??= await getCurrentPosition();
 
     final isKn = ttsService.isKannada;
-    if (pos == null || pos.heading < 0) {
+    final smoothed = updateSmoothedHeading(pos?.heading ?? -1.0);
+    if (pos == null || (pos.heading < 0 && smoothed < 0)) {
       final msg = isKn
           ? 'ದಿಕ್ಸೂಚಿ ದೃಷ್ಟಿಕೋನ ಇನ್ನೂ ಲಭ್ಯವಿಲ್ಲ. ದಿಕ್ಸೂಚಿ ಮಾಪನಾಂಕ ನಿರ್ಣಯಕ್ಕಾಗಿ ಕೆಲವು ಹೆಜ್ಜೆಗಳನ್ನು ಮುಂದಿಡಿ.'
           : 'Compass orientation is not yet calibrated. Take a couple of steps forward to establish heading.';
@@ -247,7 +261,7 @@ class PedestrianNavigationService extends ChangeNotifier {
       return;
     }
 
-    final headingDeg = (pos.heading % 360 + 360) % 360;
+    final headingDeg = (smoothed % 360 + 360) % 360;
     final int degrees = headingDeg.round();
 
     final String cardinalEn;
