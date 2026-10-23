@@ -716,6 +716,12 @@ out body 10;
     _lastKnownPosition = position;
     if (_status != NavigationStatus.navigating || _currentRoute == null) return;
 
+    // Filter out low-accuracy GPS multipath spikes (> 35m uncertainty radius)
+    if (position.accuracy > 35.0) {
+      debugPrint('[PedestrianNavigation] GPS multipath jitter suppressed (accuracy: ${position.accuracy}m)');
+      return;
+    }
+
     final route = _currentRoute!;
     final destDist = Geolocator.distanceBetween(
       position.latitude,

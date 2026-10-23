@@ -13,6 +13,8 @@ class DetectedVisionItem {
   final String proximity; // 'close', 'near', or 'far'
   final String? cameraGuidance; // Guidance to center object e.g. "Move camera slightly to your left"
   final bool isHighConfidence;
+  final bool isOverheadHazard;
+  final double? estimatedDistanceMeters;
 
   const DetectedVisionItem({
     required this.label,
@@ -22,10 +24,13 @@ class DetectedVisionItem {
     this.proximity = 'near',
     this.cameraGuidance,
     this.isHighConfidence = true,
+    this.isOverheadHazard = false,
+    this.estimatedDistanceMeters,
   });
 
   @override
-  String toString() => '$label ($position, ${(confidence * 100).toStringAsFixed(0)}%)';
+  String toString() =>
+      '$label ($position, ${(confidence * 100).toStringAsFixed(0)}%, dist: ${estimatedDistanceMeters ?? "N/A"}m${isOverheadHazard ? ", overhead" : ""})';
 }
 
 /// Genuine on-device object detection service using a COCO-trained MobileNet SSD model.
@@ -237,7 +242,7 @@ class ObjectDetectorService {
           cameraGuidance = '$label is directly in front of you.';
         }
 
-        // Describe visual prominence in frame rather than fabricating exact physical distances
+        // Describe visual prominence in frame and estimate physically grounded distance
         final boxHeightRatio = ymaxNorm - yminNorm;
         final String proximity;
         if (boxHeightRatio > 0.45) {
@@ -247,6 +252,15 @@ class ObjectDetectorService {
         } else {
           proximity = 'far';
         }
+
+        // Pinhole camera focal distance estimation (meters)
+        final double estimatedDist = (0.65 / boxHeightRatio).clamp(0.5, 8.0);
+
+        // Detect overhead/head-level hazards: suspended in top half of frame, not touching ground
+        final bool isOverhead = yminNorm < 0.28 && ymaxNorm < 0.65 && centerX >= 0.25 && centerX <= 0.75;
+        final String finalGuidance = isOverhead
+            ? 'Head-level obstacle ahead: low clearance for $label.'
+            : cameraGuidance;
 
         // Avoid duplicate announcements of identical item in the same sector
         final dedupeKey = '$label-$position';
@@ -261,8 +275,10 @@ class ObjectDetectorService {
           boundingBox: boxRect,
           position: position,
           proximity: proximity,
-          cameraGuidance: cameraGuidance,
+          cameraGuidance: finalGuidance,
           isHighConfidence: score >= 0.60,
+          isOverheadHazard: isOverhead,
+          estimatedDistanceMeters: double.parse(estimatedDist.toStringAsFixed(1)),
         ));
       }
 

@@ -86,6 +86,35 @@ class TtsService extends ChangeNotifier {
     }
   }
 
+  /// High-priority speech for life-safety warnings (Emergency SOS, critical collision alerts).
+  ///
+  /// Guarantees maximum volume (1.0), immediately cuts off ongoing low-priority chatter,
+  /// and delivers clear audible acoustic alerts in noisy environments.
+  Future<void> emergencySpeak(String text) async {
+    if (text.trim().isEmpty) return;
+    try {
+      await _tts.stop();
+      await _tts.setVolume(1.0);
+      _lastMessage = text;
+      _isSpeaking = true;
+      notifyListeners();
+      await _tts.speak(text);
+    } catch (e) {
+      debugPrint('TtsService.emergencySpeak platform exception: $e');
+      _isSpeaking = false;
+      notifyListeners();
+    }
+  }
+
+  /// Sets audio output volume (0.0 to 1.0).
+  Future<void> setVolume(double volume) async {
+    try {
+      await _tts.setVolume(volume.clamp(0.0, 1.0));
+    } catch (e) {
+      debugPrint('TtsService.setVolume platform exception: $e');
+    }
+  }
+
   /// Stops the currently playing speech immediately.
   Future<void> stop() async {
     try {

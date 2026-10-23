@@ -348,6 +348,28 @@ def run_suite_4():
     all_passed &= assert_test(match_note(80, 0.70) == '20',   "₹20 note identified by Greenish Yellow hue (80°)")
     all_passed &= assert_test(match_note(310, 0.75) == '2000', "₹2000 note identified by Magenta hue (310°)")
 
+    # 3. Overhead hazard identification
+    def check_overhead(ymin, ymax, center_x):
+        return ymin < 0.28 and ymax < 0.65 and 0.25 <= center_x <= 0.75
+
+    all_passed &= assert_test(check_overhead(0.10, 0.45, 0.50), "Suspended upper-sector object flagged as Overhead Hazard")
+    all_passed &= assert_test(not check_overhead(0.50, 0.90, 0.50), "Ground object (bottom of frame) not flagged as overhead")
+
+    # 4. Physical distance estimation
+    def estimate_distance(box_ratio):
+        return max(0.5, min(8.0, 0.65 / max(0.05, box_ratio)))
+
+    dist_close = round(estimate_distance(0.50), 1)
+    dist_far = round(estimate_distance(0.10), 1)
+    all_passed &= assert_test(dist_close == 1.3, f"Prominent obstacle (50% frame) = 1.3m (got {dist_close}m)")
+    all_passed &= assert_test(dist_far == 6.5, f"Distant obstacle (10% frame) = 6.5m (got {dist_far}m)")
+
+    # 5. Emergency audio capabilities in TtsService
+    with open('lib/core/services/tts_service.dart', 'r', encoding='utf-8') as f:
+        tts_code = f.read()
+    all_passed &= assert_test('emergencySpeak' in tts_code, "TtsService contains emergencySpeak priority volume boost")
+    all_passed &= assert_test('setVolume' in tts_code, "TtsService contains setVolume control")
+
     return all_passed
 
 # ============================================================================

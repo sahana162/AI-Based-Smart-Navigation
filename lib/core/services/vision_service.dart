@@ -277,12 +277,18 @@ class VisionService {
           confidence = topLabel.confidence;
         }
 
+        final double boxHeight = box.height;
+        final double estimatedDist = (150.0 / boxHeight.clamp(20.0, 500.0)).clamp(0.5, 8.0);
+        final bool isOverhead = box.top < 200 && box.bottom < 450 && position == 'center';
+
         results.add(DetectedVisionItem(
           label: label,
           confidence: confidence,
           boundingBox: box,
           position: position,
           proximity: (box.height > 250) ? 'close' : 'near',
+          isOverheadHazard: isOverhead,
+          estimatedDistanceMeters: double.parse(estimatedDist.toStringAsFixed(1)),
         ));
       }
 
@@ -354,9 +360,15 @@ class VisionService {
             ? 'close'
             : (boxHeight > height * 0.20 ? 'near' : 'far');
 
-        final String guidance = position == 'center'
-            ? '$label directly ahead of you.'
-            : '$label on your $position.';
+        final double boxHeightRatio = boxHeight / height;
+        final double estimatedDist = (0.65 / boxHeightRatio.clamp(0.05, 1.0)).clamp(0.5, 8.0);
+
+        final bool isOverhead = box.top < height * 0.28 && box.bottom < height * 0.65 && position == 'center';
+        final String guidance = isOverhead
+            ? 'Head-level obstacle ahead: low clearance for $label.'
+            : (position == 'center'
+                ? '$label directly ahead of you.'
+                : '$label on your $position.');
 
         results.add(DetectedVisionItem(
           label: label,
@@ -366,6 +378,8 @@ class VisionService {
           proximity: proximity,
           cameraGuidance: guidance,
           isHighConfidence: confidence >= 0.50,
+          isOverheadHazard: isOverhead,
+          estimatedDistanceMeters: double.parse(estimatedDist.toStringAsFixed(1)),
         ));
       }
 
