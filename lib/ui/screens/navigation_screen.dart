@@ -460,6 +460,35 @@ class _NavigationScreenState extends State<NavigationScreen>
     } catch (_) {}
   }
 
+  void _triggerEmergency() {
+    HapticFeedback.heavyImpact();
+    final contact = widget.storageService.emergencyContact;
+    final isKn = widget.ttsService.isKannada;
+    widget.ttsService.emergencySpeak(
+      isKn
+          ? 'ತುರ್ತು ಮೋಡ್ ಸಕ್ರಿಯವಾಗಿದೆ. ತುರ್ತು ಸಂಪರ್ಕ: $contact. ಸಹಾಯಕ್ಕಾಗಿ 112 ಕರೆ ಮಾಡಿ.'
+          : 'Emergency alert activated. Emergency contact is $contact. Calling 112 if needed.',
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FeatureDetailScreen(
+          title: isKn ? 'ತುರ್ತು ಸಹಾಯ' : 'Emergency SOS',
+          status: isKn ? 'ಲಭ್ಯವಿದೆ' : 'Active',
+          explanation: isKn
+              ? 'ತುರ್ತು ಸಂಪರ್ಕ: $contact. ತಕ್ಷಣ ಸ್ಥಳೀಯ ತುರ್ತು ಸೇವೆಗಳಿಗೆ ಕರೆ ಮಾಡಿ.'
+              : 'Emergency contact: $contact. Call local emergency services immediately for medical or physical danger.',
+          technicalNotes: 'Direct phone dial and GPS location guidance.',
+          icon: Icons.emergency,
+          ttsService: widget.ttsService,
+          speechService: widget.speechService,
+          storageService: widget.storageService,
+          voiceCoordinator: widget.voiceCoordinator,
+          assistantName: widget.storageService.assistantName,
+        ),
+      ),
+    );
+  }
+
   Future<void> _describeSurroundings() async {
     if (!_isCameraInitialized || _cameraController == null) {
       await widget.ttsService.speak(
@@ -1011,6 +1040,7 @@ class _NavigationScreenState extends State<NavigationScreen>
               }
             },
             onDoubleTap: _handleMicToggle,
+            onLongPress: _triggerEmergency,
             onHorizontalDragEnd: (details) {
               if (details.primaryVelocity != null && details.primaryVelocity!.abs() > 200) {
                 _toggleTorch();

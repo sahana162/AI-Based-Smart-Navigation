@@ -104,6 +104,21 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _speakWelcomeGreeting() async {
     final name = widget.storageService.assistantName;
     final strings = _strings;
+    final isKn = strings.isKannada;
+    final hasCompleted = widget.storageService.hasCompletedOnboarding;
+
+    if (!hasCompleted) {
+      await widget.storageService.setCompletedOnboarding(true);
+      final walkthrough = isKn
+          ? 'ಸ್ಮಾರ್ಟ್ ನ್ಯಾವಿಗೇಷನ್‌ಗೆ ಸುಸ್ವಾಗತ. ನಾನು ನಿಮ್ಮ ಧ್ವನಿ ಸಹಾಯಕ $name. ನೀವು ಯಾವುದೇ ಸಮಯದಲ್ಲಿ ಪರದೆಯ ಮೇಲೆ ಡಬಲ್ ಟ್ಯಾಪ್ ಮಾಡಿ ನನ್ನೊಂದಿಗೆ ಮಾತನಾಡಬಹುದು, ಅಥವಾ ಕೆಳಗಿನ ದೊಡ್ಡ ಮೈಕ್ ಬಟನ್ ಒತ್ತಬಹುದು. ತುರ್ತು ಸಹಾಯಕ್ಕಾಗಿ ಪರದೆಯ ಮೇಲೆ ದೀರ್ಘವಾಗಿ ಒತ್ತಿರಿ. ಸಹಾಯ ಪಡೆಯಲು "ಹೆಲ್ಪ್" ಅಥವಾ "ನಾನು ಎಲ್ಲಿದ್ದೇನೆ" ಎಂದು ಹೇಳಿ. ನಾನು ಸಿದ್ಧವಾಗಿದ್ದೇನೆ.'
+          : 'Welcome to Smart Navigation. I am $name, your mobility and vision assistant. Double-tap anywhere on the screen at any time to speak to me, or tap the microphone button below. In an emergency, press and hold anywhere on the screen. Try saying "Where am I", "Take me home", or "Describe surroundings". I am ready to guide you.';
+      setState(() {
+        _assistantStatus = strings.assistantReady(name);
+      });
+      await widget.ttsService.speak(walkthrough);
+      return;
+    }
+
     final welcome = strings.welcomeGreeting(name);
     setState(() {
       _assistantStatus = strings.assistantReady(name);
@@ -677,7 +692,19 @@ class _HomeScreenState extends State<HomeScreen>
       body: SafeArea(
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            final name = widget.storageService.assistantName;
+            final msg = _strings.isKannada
+                ? '$name ಸಿದ್ಧವಾಗಿದೆ. ಮಾತನಾಡಲು ಡಬಲ್ ಟ್ಯಾಪ್ ಮಾಡಿ, ಅಥವಾ ತುರ್ತು ಸಹಾಯಕ್ಕಾಗಿ ದೀರ್ಘವಾಗಿ ಒತ್ತಿರಿ.'
+                : 'Assistant $name is ready. Double tap to speak, or press and hold for emergency SOS.';
+            widget.ttsService.speak(msg);
+          },
           onDoubleTap: _handleMicToggle,
+          onLongPress: () {
+            HapticFeedback.heavyImpact();
+            _triggerEmergency();
+          },
           child: Column(
             children: [
               // 1. Safety Disclaimer Strip

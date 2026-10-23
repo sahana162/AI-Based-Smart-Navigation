@@ -31,6 +31,7 @@ class StorageService {
   static const _kAutoTorchEnabled = 'auto_torch_enabled';
   static const _kDirectionalHaptics = 'directional_haptics_enabled';
   static const _kFavoritePlaces = 'favorite_places';
+  static const _kHasCompletedOnboarding = 'has_completed_onboarding';
 
   final SharedPreferences _prefs;
 
@@ -62,6 +63,12 @@ class StorageService {
 
   String get emergencyContact =>
       _prefs.getString(_kEmergencyContact) ?? defaultEmergencyContact;
+
+  bool get hasCompletedOnboarding =>
+      _prefs.getBool(_kHasCompletedOnboarding) ?? false;
+
+  Future<void> setCompletedOnboarding(bool val) =>
+      _prefs.setBool(_kHasCompletedOnboarding, val);
 
   bool get obstacleAlertsDefaultEnabled =>
       _prefs.getBool(_kObstacleAlertsEnabled) ?? defaultObstacleAlertsEnabled;

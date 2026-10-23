@@ -256,6 +256,13 @@ void main() {
       expect(storage.autoTorchEnabled, true);
     });
 
+    test('persists hasCompletedOnboarding flag', () async {
+      final storage = await StorageService.initialize();
+      expect(storage.hasCompletedOnboarding, false);
+      await storage.setCompletedOnboarding(true);
+      expect(storage.hasCompletedOnboarding, true);
+    });
+
     test('persists directional turn haptics and favorite places', () async {
       final storage = await StorageService.initialize();
       expect(storage.directionalHapticsEnabled, true);
