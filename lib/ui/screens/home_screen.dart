@@ -45,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   String _lastVoiceTranscript = '';
   String _assistantStatus = '';
+  bool _hasSpokenGreeting = false;
 
   @override
   String get screenName => 'Home';
@@ -102,6 +103,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _speakWelcomeGreeting() async {
+    if (_hasSpokenGreeting) return;
+    _hasSpokenGreeting = true;
     final name = widget.storageService.assistantName;
     final strings = _strings;
     final isKn = strings.isKannada;

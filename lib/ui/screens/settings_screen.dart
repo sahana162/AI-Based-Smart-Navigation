@@ -44,6 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   late bool _directionalHapticsEnabled;
   late String _currentLanguageCode;
   bool _isAddingItem = false;
+  bool _hasSpokenGreeting = false;
 
   final List<String> _namePresets = ['Alice', 'Nova', 'Companion', 'Guide'];
 
@@ -68,6 +69,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     _currentLanguageCode = widget.storageService.appLanguage;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_hasSpokenGreeting || !mounted) return;
+      _hasSpokenGreeting = true;
       final strings = AppStrings(AppLanguage.fromCode(_currentLanguageCode));
       final greeting = strings.isKannada
           ? 'ಸೆಟ್ಟಿಂಗ್ಸ್ ಪರದೆ. ನೀವು ಸಹಾಯಕನ ಹೆಸರು, ಭಾಷೆ ಮತ್ತು ಧ್ವನಿ ವೇಗವನ್ನು ಕಸ್ಟಮೈಸ್ ಮಾಡಬಹುದು.'

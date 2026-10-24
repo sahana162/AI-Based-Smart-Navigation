@@ -49,6 +49,7 @@ class _FeatureDetailScreenState extends State<FeatureDetailScreen>
   PedestrianNavigationService? _emergencyNavService;
   Map<String, dynamic>? _emergencyLocation;
   bool _isLoadingGps = false;
+  bool _hasSpokenGreeting = false;
 
   bool get _isEmergency => widget.icon == Icons.emergency;
 
@@ -159,6 +160,8 @@ class _FeatureDetailScreenState extends State<FeatureDetailScreen>
       });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_hasSpokenGreeting || !mounted) return;
+        _hasSpokenGreeting = true;
         final speech = '${widget.title}. Status: ${widget.status}. ${widget.explanation}';
         widget.ttsService.speak(speech);
       });

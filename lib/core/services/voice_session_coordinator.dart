@@ -48,6 +48,8 @@ class VoiceSessionCoordinator extends ChangeNotifier {
   static const int _maxConsecutiveStandbyErrors = 4;
   String _lastTranscript = '';
   String _statusText = '';
+  DateTime? _lastCommandTime;
+  String _lastProcessedText = '';
 
   VoiceSessionCoordinator({
     required this.storageService,
@@ -270,20 +272,24 @@ class VoiceSessionCoordinator extends ChangeNotifier {
             lower.contains('ಆಲಿಸ್');
 
         if (containsWakeWord) {
-          _isWakeWordStandby = false;
-          _standbyCycles = 0;
-          _standbyConsecutiveErrors = 0;
-          await speechService.stopListening();
-
-          // Check if user spoke a command along with the wake word (e.g. "Alice, what am I looking at?")
           final parsed = VoiceCommandParser.parse(words, storageService.assistantName);
-          if (parsed.type != VoiceCommandType.startListening &&
+          final hasValidCommand = parsed.type != VoiceCommandType.startListening &&
               parsed.type != VoiceCommandType.none &&
-              parsed.type != VoiceCommandType.unknown) {
-            // Wake word + command: process directly!
+              parsed.type != VoiceCommandType.unknown;
+
+          // If a command was spoken WITH the wake word (e.g. "Alice, what am I looking at?"):
+          if (hasValidCommand) {
+            _isWakeWordStandby = false;
+            _standbyCycles = 0;
+            _standbyConsecutiveErrors = 0;
+            await speechService.stopListening();
             await processRecognizedText(words);
-          } else {
-            // Wake word alone: prompt user for request
+          } else if (isFinal) {
+            // Wake word alone ("Alice"): only prompt user once utterance finishes
+            _isWakeWordStandby = false;
+            _standbyCycles = 0;
+            _standbyConsecutiveErrors = 0;
+            await speechService.stopListening();
             _awaitingConversationalReply = true;
             final prompt = strings.isKannada
                 ? 'ಹೇಳಿ, ನಾನು ಕೇಳಿಸಿಕೊಳ್ಳುತ್ತಿದ್ದೇನೆ.'
@@ -343,7 +349,25 @@ class VoiceSessionCoordinator extends ChangeNotifier {
   // ── Centralized Command Processing ────────────────────────────────────────
 
   /// Normalizes, parses, and executes any voice input.
+  /// Prevents concurrent execution and debounces identical commands within 1500ms.
   Future<void> processRecognizedText(String rawText) async {
+    final trimmed = rawText.trim();
+    if (trimmed.isEmpty) return;
+
+    final now = DateTime.now();
+    if (_isProcessing) {
+      debugPrint('[Coordinator] Already processing a command. Skipping concurrent: "$trimmed"');
+      return;
+    }
+    if (_lastCommandTime != null &&
+        now.difference(_lastCommandTime!).inMilliseconds < 1500 &&
+        _lastProcessedText.toLowerCase() == trimmed.toLowerCase()) {
+      debugPrint('[Coordinator] Debouncing identical repeated command within 1500ms: "$trimmed"');
+      return;
+    }
+
+    _lastCommandTime = now;
+    _lastProcessedText = trimmed;
     _isProcessing = true;
     _emptyTimeoutCount = 0;
     _awaitingConversationalReply = false;
@@ -351,7 +375,7 @@ class VoiceSessionCoordinator extends ChangeNotifier {
 
     try {
       final assistantName = storageService.assistantName;
-      final command = VoiceCommandParser.parse(rawText, assistantName);
+      final command = VoiceCommandParser.parse(trimmed, assistantName);
 
       debugPrint('[Coordinator] Dispatching: $command');
 

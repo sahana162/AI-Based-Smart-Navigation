@@ -82,7 +82,9 @@ class SpeechService extends ChangeNotifier {
         if (_currentTranscript.trim().isNotEmpty && !_finalDelivered && _activeResultCallback != null) {
           debugPrint('[STT] Salvaging partial transcript on error: "$_currentTranscript"');
           _finalDelivered = true;
-          _activeResultCallback!(_currentTranscript.trim(), true);
+          final cb = _activeResultCallback;
+          _activeResultCallback = null;
+          cb?.call(_currentTranscript.trim(), true);
           return;
         }
 
@@ -107,7 +109,9 @@ class SpeechService extends ChangeNotifier {
             _activeResultCallback != null) {
           debugPrint('[STT] Delivering final words on session completion: "$_currentTranscript"');
           _finalDelivered = true;
-          _activeResultCallback!(_currentTranscript.trim(), true);
+          final cb = _activeResultCallback;
+          _activeResultCallback = null;
+          cb?.call(_currentTranscript.trim(), true);
         }
       },
     );
@@ -154,12 +158,20 @@ class SpeechService extends ChangeNotifier {
         onResult: (SpeechRecognitionResult result) {
           _currentTranscript = result.recognizedWords;
           if (result.finalResult) {
+            if (_finalDelivered) {
+              debugPrint('[STT] Dropping redundant final transcript from native engine: "${result.recognizedWords}"');
+              return;
+            }
             _finalDelivered = true;
             debugPrint('[STT] Final transcript received: "${result.recognizedWords}"');
+            final cb = _activeResultCallback;
+            _activeResultCallback = null;
+            cb?.call(result.recognizedWords, true);
           } else {
-            debugPrint('[STT] Partial result: "${result.recognizedWords}"');
+            if (!_finalDelivered) {
+              _activeResultCallback?.call(result.recognizedWords, false);
+            }
           }
-          onResult(result.recognizedWords, result.finalResult);
         },
         listenOptions: SpeechListenOptions(
           localeId: localeId,
@@ -174,6 +186,7 @@ class SpeechService extends ChangeNotifier {
       _lastError = e.toString();
       _lastErrorCategory = SpeechErrorCategory.other;
       _isListening = false;
+      _activeResultCallback = null;
       notifyListeners();
       return false;
     }
@@ -187,10 +200,14 @@ class SpeechService extends ChangeNotifier {
   Future<void> stopListening() async {
     if (!_isListening && !_stt.isListening) return;
     debugPrint('[STT] Stopping active listening session.');
-    await _stt.stop();
-    _isListening = false;
     _activeResultCallback = null;
+    _isListening = false;
     notifyListeners();
+    try {
+      await _stt.stop();
+    } catch (e) {
+      debugPrint('[STT] Exception during stop: $e');
+    }
   }
 
   // ── Locale helpers ────────────────────────────────────────────────────────

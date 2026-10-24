@@ -9,6 +9,7 @@ class TtsService extends ChangeNotifier {
   final FlutterTts _tts = FlutterTts();
 
   String _lastMessage = '';
+  DateTime? _lastSpeakTime;
   bool _isSpeaking = false;
   String _currentLocale = 'en-US';
   VoidCallback? onSpeechCompleted;
@@ -71,14 +72,26 @@ class TtsService extends ChangeNotifier {
   // ── Playback ──────────────────────────────────────────────────────────────
 
   /// Speaks [text]. Stops any ongoing speech first.
+  /// Automatically debounces duplicate identical messages within 1800ms.
   Future<void> speak(String text) async {
-    if (text.trim().isEmpty) return;
-    _lastMessage = text;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+
+    final now = DateTime.now();
+    if (_lastMessage.trim().toLowerCase() == trimmed.toLowerCase() &&
+        _lastSpeakTime != null &&
+        now.difference(_lastSpeakTime!).inMilliseconds < 1800) {
+      debugPrint('[TtsService] Suppressed duplicate speech within 1800ms: "$trimmed"');
+      return;
+    }
+
+    _lastMessage = trimmed;
+    _lastSpeakTime = now;
     _isSpeaking = true;
     notifyListeners();
     try {
       await _tts.stop();
-      await _tts.speak(text);
+      await _tts.speak(trimmed);
     } catch (e) {
       debugPrint('TtsService.speak platform exception: $e');
       _isSpeaking = false;
@@ -91,14 +104,25 @@ class TtsService extends ChangeNotifier {
   /// Guarantees maximum volume (1.0), immediately cuts off ongoing low-priority chatter,
   /// and delivers clear audible acoustic alerts in noisy environments.
   Future<void> emergencySpeak(String text) async {
-    if (text.trim().isEmpty) return;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+
+    final now = DateTime.now();
+    if (_lastMessage.trim().toLowerCase() == trimmed.toLowerCase() &&
+        _lastSpeakTime != null &&
+        now.difference(_lastSpeakTime!).inMilliseconds < 1500) {
+      debugPrint('[TtsService] Suppressed duplicate emergency speech within 1500ms: "$trimmed"');
+      return;
+    }
+
+    _lastMessage = trimmed;
+    _lastSpeakTime = now;
+    _isSpeaking = true;
+    notifyListeners();
     try {
       await _tts.stop();
       await _tts.setVolume(1.0);
-      _lastMessage = text;
-      _isSpeaking = true;
-      notifyListeners();
-      await _tts.speak(text);
+      await _tts.speak(trimmed);
     } catch (e) {
       debugPrint('TtsService.emergencySpeak platform exception: $e');
       _isSpeaking = false;
@@ -130,7 +154,12 @@ class TtsService extends ChangeNotifier {
 
   /// Repeats the last spoken message, or speaks [emptyMessage] if none exists.
   Future<void> repeat({String emptyMessage = 'No message to repeat.'}) {
-    return speak(_lastMessage.isNotEmpty ? _lastMessage : emptyMessage);
+    if (_lastMessage.isEmpty) {
+      return speak(emptyMessage);
+    }
+    // Explicit user request to repeat: reset debounce timestamp so it is never dropped
+    _lastSpeakTime = null;
+    return speak(_lastMessage);
   }
 
   // ── Settings ──────────────────────────────────────────────────────────────

@@ -303,12 +303,15 @@ class _NavigationScreenState extends State<NavigationScreen>
         obstacles.sort((a, b) => a.proximity == 'close' ? -1 : 1);
         final mostUrgent = obstacles.first;
 
-        // Check debouncing: don't repeat the identical alert within 4 seconds unless it became 'close'
+        // Check debouncing: different obstacles announce immediately; same obstacle repeats at most every 3s (close/overhead) or 5s (near)
         final bool isSameObstacle = _lastAnnouncedObstacle == mostUrgent.label;
-        final bool alertExpired = _lastAlertAnnouncementTime == null ||
-            now.difference(_lastAlertAnnouncementTime!).inSeconds >= 4;
+        final int elapsedSec = _lastAlertAnnouncementTime == null
+            ? 999
+            : now.difference(_lastAlertAnnouncementTime!).inSeconds;
+        final int minRepeatIntervalSec = (mostUrgent.proximity == 'close' || mostUrgent.isOverheadHazard) ? 3 : 5;
+        final bool shouldAnnounce = !isSameObstacle || elapsedSec >= minRepeatIntervalSec;
 
-        if (!isSameObstacle || alertExpired || mostUrgent.proximity == 'close') {
+        if (shouldAnnounce) {
           _lastAnnouncedObstacle = mostUrgent.label;
           _lastAlertAnnouncementTime = now;
 

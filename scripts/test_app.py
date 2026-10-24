@@ -423,6 +423,65 @@ def run_suite_5():
     return all_passed
 
 # ============================================================================
+# TEST SUITE 6: SPEECH DEDUPLICATION & ANTI-REPETITION ASSURANCE
+# ============================================================================
+def run_suite_6():
+    log_header("TEST SUITE 6: Speech Deduplication & Anti-Repetition Assurance")
+    all_passed = True
+
+    # 1. TtsService deduplication verification
+    with open('lib/core/services/tts_service.dart', 'r', encoding='utf-8') as f:
+        tts_code = f.read()
+
+    has_tts_debounce = '_lastSpeakTime' in tts_code and 'now.difference(_lastSpeakTime!).inMilliseconds' in tts_code
+    all_passed &= assert_test(has_tts_debounce, "TtsService contains timestamped message debouncing")
+
+    has_tts_case_insens = '_lastMessage.trim().toLowerCase() == trimmed.toLowerCase()' in tts_code
+    all_passed &= assert_test(has_tts_case_insens, "TtsService checks case-insensitive message equality")
+
+    has_repeat_override = '_lastSpeakTime = null' in tts_code
+    all_passed &= assert_test(has_repeat_override, "TtsService.repeat() resets debounce timestamp to guarantee explicit repetition")
+
+    # 2. SpeechService single-delivery verification
+    with open('lib/core/services/speech_service.dart', 'r', encoding='utf-8') as f:
+        stt_code = f.read()
+
+    has_stt_drop_duplicate = 'Dropping redundant final transcript' in stt_code
+    all_passed &= assert_test(has_stt_drop_duplicate, "SpeechService drops redundant finalResult callbacks from native engine")
+
+    has_stt_clean_callback = '_activeResultCallback = null' in stt_code
+    all_passed &= assert_test(has_stt_clean_callback, "SpeechService invalidates _activeResultCallback upon final delivery")
+
+    # 3. VoiceSessionCoordinator debouncing & reentrancy protection
+    with open('lib/core/services/voice_session_coordinator.dart', 'r', encoding='utf-8') as f:
+        coord_code = f.read()
+
+    has_reentrancy_guard = 'Already processing a command. Skipping concurrent' in coord_code
+    all_passed &= assert_test(has_reentrancy_guard, "VoiceSessionCoordinator prevents concurrent command processing reentrancy")
+
+    has_coord_debounce = '_lastCommandTime' in coord_code and 'Debouncing identical repeated command' in coord_code
+    all_passed &= assert_test(has_coord_debounce, "VoiceSessionCoordinator debounces identical command execution within 1500ms")
+
+    has_standby_final_guard = '} else if (isFinal) {' in coord_code
+    all_passed &= assert_test(has_standby_final_guard, "VoiceSessionCoordinator wake word standby waits for isFinal before prompting")
+
+    # 4. NavigationScreen obstacle debouncing
+    with open('lib/ui/screens/navigation_screen.dart', 'r', encoding='utf-8') as f:
+        nav_screen_code = f.read()
+
+    has_nav_obstacle_guard = 'minRepeatIntervalSec' in nav_screen_code and 'shouldAnnounce' in nav_screen_code
+    all_passed &= assert_test(has_nav_obstacle_guard, "NavigationScreen enforces 3-5s minimum cooldown between identical obstacle alerts")
+
+    # 5. HomeScreen greeting guard
+    with open('lib/ui/screens/home_screen.dart', 'r', encoding='utf-8') as f:
+        home_code = f.read()
+
+    has_home_greeting_guard = '_hasSpokenGreeting' in home_code
+    all_passed &= assert_test(has_home_greeting_guard, "HomeScreen protects welcome greeting from double invocation")
+
+    return all_passed
+
+# ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 def main():
@@ -435,6 +494,7 @@ def main():
     s3 = run_suite_3()
     s4 = run_suite_4()
     s5 = run_suite_5()
+    s6 = run_suite_6()
 
     log_header("FINAL VERIFICATION SUMMARY")
     print(f"  Suite 1 (Dart Syntactic Integrity):       {'PASS' if s1 else 'FAIL'}")
@@ -442,8 +502,9 @@ def main():
     print(f"  Suite 3 (Mathematical Routing & Bearings):{'PASS' if s3 else 'FAIL'}")
     print(f"  Suite 4 (Vision & Banknote Algorithms):   {'PASS' if s4 else 'FAIL'}")
     print(f"  Suite 5 (WCAG AAA Accessibility Audit):   {'PASS' if s5 else 'FAIL'}")
+    print(f"  Suite 6 (Speech Anti-Repetition Assurance):{'PASS' if s6 else 'FAIL'}")
 
-    all_passed = s1 and s2 and s3 and s4 and s5
+    all_passed = s1 and s2 and s3 and s4 and s5 and s6
     if all_passed:
         print(f"\n{BOLD}{GREEN}ALL TEST SUITES PASSED PERFECTLY! ZERO DEFECTS DETECTED.{RESET}\n")
         sys.exit(0)
