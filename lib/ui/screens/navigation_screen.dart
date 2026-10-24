@@ -14,6 +14,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/voice_command.dart';
 import '../widgets/accessible_button.dart';
 import '../widgets/mic_button.dart';
+import 'feature_detail_screen.dart';
 
 class NavigationScreen extends StatefulWidget {
   final StorageService storageService;
@@ -25,6 +26,7 @@ class NavigationScreen extends StatefulWidget {
   final String? initialOcrMode;
   final bool? isSavedLookup;
   final String? savedNotes;
+  final bool promptDestinationOnLoad;
   final PedestrianNavigationService? navigationService;
   final VisionService? visionService;
   final VoiceSessionCoordinator? voiceCoordinator;
@@ -40,6 +42,7 @@ class NavigationScreen extends StatefulWidget {
     this.initialOcrMode,
     this.isSavedLookup,
     this.savedNotes,
+    this.promptDestinationOnLoad = false,
     this.navigationService,
     this.visionService,
     this.voiceCoordinator,
@@ -104,6 +107,10 @@ class _NavigationScreenState extends State<NavigationScreen>
     if (widget.initialDestination != null && widget.initialDestination!.trim().isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _navService.startNavigationToDestination(widget.initialDestination!);
+      });
+    } else if (widget.promptDestinationOnLoad) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _promptForDestination();
       });
     }
   }
@@ -197,7 +204,7 @@ class _NavigationScreenState extends State<NavigationScreen>
         if (shouldStream) {
           _startLiveObstacleMonitoring();
         }
-        if (widget.initialDestination == null) {
+        if (widget.initialDestination == null && !widget.promptDestinationOnLoad) {
           final isKn = widget.ttsService.isKannada;
           final msg = isKn
               ? (shouldStream
@@ -809,6 +816,10 @@ class _NavigationScreenState extends State<NavigationScreen>
         _stopNavigation();
         return true;
 
+      case VoiceCommandType.startNavigation:
+        _promptForDestination();
+        return true;
+
       case VoiceCommandType.takeMeTo:
         final destination = command.argument ?? 'destination';
         _navService.startNavigationToDestination(destination);
@@ -964,8 +975,291 @@ class _NavigationScreenState extends State<NavigationScreen>
 
   void _stopNavigation() {
     _navService.stopNavigation();
-    widget.ttsService.speak('Navigation stopped. Returning to home screen.');
+    final isKn = widget.ttsService.isKannada;
+    widget.ttsService.speak(
+      isKn
+          ? 'ನ್ಯಾವಿಗೇಷನ್ ನಿಲ್ಲಿಸಲಾಗಿದೆ. ಮನೆ ಪರದೆಗೆ ಮರಳುತ್ತಿದೆ.'
+          : 'Navigation stopped. Returning to home screen.',
+    );
     Navigator.of(context).pop();
+  }
+
+  Future<void> _promptForDestination() async {
+    final isKn = widget.ttsService.isKannada;
+    final promptMsg = isKn
+        ? 'ನೀವು ಎಲ್ಲಿಗೆ ಹೋಗಲು ಬಯಸುತ್ತೀರಿ? ನಿಮ್ಮ ಗಮ್ಯಸ್ಥಾನವನ್ನು ಹೇಳಿ ಅಥವಾ ಉಳಿಸಿದ ಸ್ಥಳವನ್ನು ಆಯ್ಕೆಮಾಡಿ.'
+        : 'Where would you like to go? Speak your destination, choose a favorite place, or type it below.';
+    await widget.ttsService.speak(promptMsg);
+
+    if (!mounted) return;
+
+    final TextEditingController destController = TextEditingController();
+    bool isListeningForDest = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        side: BorderSide(color: AppTheme.primary, width: 2),
+      ),
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final favorites = widget.storageService.favoritePlaces;
+
+            Future<void> startListeningInModal() async {
+              if (widget.speechService.isListening) {
+                await widget.speechService.stopListening();
+                setModalState(() => isListeningForDest = false);
+                return;
+              }
+
+              await widget.ttsService.stop();
+              setModalState(() => isListeningForDest = true);
+
+              final started = await widget.speechService.startListening(
+                localeId: widget.storageService.appLanguage == 'kn' ? 'kn_IN' : 'en_US',
+                onResult: (text, isFinal) {
+                  if (text.trim().isNotEmpty) {
+                    setModalState(() {
+                      destController.text = text.trim();
+                    });
+                  }
+                  if (isFinal && text.trim().isNotEmpty) {
+                    setModalState(() => isListeningForDest = false);
+                    Navigator.of(modalContext).pop();
+                    _navService.startNavigationToDestination(text.trim());
+                  }
+                },
+              );
+              if (!started) {
+                setModalState(() => isListeningForDest = false);
+                final err = widget.speechService.lastError ??
+                    (isKn ? 'ಧ್ವನಿ ಗುರುತಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.' : 'Unable to activate microphone.');
+                widget.ttsService.speak(err);
+              }
+            }
+
+            void submitDestination(String dest) {
+              final query = dest.trim();
+              if (query.isNotEmpty) {
+                Navigator.of(modalContext).pop();
+                _navService.startNavigationToDestination(query);
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(modalContext).viewInsets.bottom + 24,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 48,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppTheme.border,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          isKn ? 'ಗಮ್ಯಸ್ಥಾನವನ್ನು ಆಯ್ಕೆಮಾಡಿ' : 'Set Destination',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: AppTheme.textMuted, size: 28),
+                          tooltip: isKn ? 'ಮುಚ್ಚಿ' : 'Close',
+                          onPressed: () {
+                            if (isListeningForDest) {
+                              widget.speechService.stopListening();
+                            }
+                            Navigator.of(modalContext).pop();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    AccessibleButton(
+                      label: isListeningForDest
+                          ? (isKn ? 'ಆಲಿಸುತ್ತಿದೆ... ಮಾತನಾಡಿ' : 'Listening... Speak now')
+                          : (isKn ? 'ಗಮ್ಯಸ್ಥಾನವನ್ನು ಧ್ವನಿಯಲ್ಲಿ ಹೇಳಿ' : 'Speak Destination'),
+                      icon: isListeningForDest ? Icons.mic : Icons.mic_none,
+                      backgroundColor: isListeningForDest ? AppTheme.accentGreen : AppTheme.primary,
+                      textColor: Colors.black,
+                      semanticHint: isKn
+                          ? 'ಧ್ವನಿಯ ಮೂಲಕ ಗಮ್ಯಸ್ಥಾನವನ್ನು ನಮೂದಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ'
+                          : 'Tap to speak your destination address or landmark',
+                      onPressed: startListeningInModal,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: destController,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: isKn ? 'ಸ್ಥಳವನ್ನು ಟೈಪ್ ಮಾಡಿ...' : 'Type destination or landmark...',
+                              hintStyle: const TextStyle(color: AppTheme.textMuted),
+                              filled: true,
+                              fillColor: AppTheme.surface,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(color: AppTheme.border, width: 2),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(color: AppTheme.accentCyan, width: 2),
+                              ),
+                            ),
+                            onSubmitted: submitDestination,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Semantics(
+                          label: isKn ? 'ನ್ಯಾವಿಗೇಷನ್ ಪ್ರಾರಂಭಿಸಿ' : 'Start Navigation',
+                          button: true,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => submitDestination(destController.text),
+                            child: Container(
+                              height: 56,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              decoration: BoxDecoration(
+                                color: AppTheme.accentCyan,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                isKn ? 'ಹೋಗು' : 'Go',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    if (favorites.isNotEmpty) ...[
+                      Text(
+                        isKn ? 'ಉಳಿಸಿದ ಸ್ಥಳಗಳು' : 'Favorite Places',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.accentYellow,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: favorites.map((fav) {
+                          final name = fav['name']?.toString() ?? fav['tag']?.toString() ?? 'Place';
+                          final isHome = (fav['tag']?.toString().toLowerCase() == 'home') ||
+                              name.toLowerCase().contains('home') ||
+                              name.contains('ಮನೆ');
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => submitDestination(name),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: AppTheme.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isHome ? AppTheme.accentGreen : AppTheme.accentCyan,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isHome ? Icons.home_rounded : Icons.star,
+                                    color: isHome ? AppTheme.accentGreen : AppTheme.accentCyan,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(
+                      isKn ? 'ತ್ವರಿತ ಸ್ಥಳಗಳು' : 'Quick Destinations',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _quickNavChip(isKn ? 'ಬಸ್ ನಿಲ್ದಾಣ' : 'Bus Stop', Icons.directions_bus, submitDestination),
+                        _quickNavChip(isKn ? 'ಮೆಟ್ರೋ ನಿಲ್ದಾಣ' : 'Metro Station', Icons.subway, submitDestination),
+                        _quickNavChip(isKn ? 'ಆಸ್ಪತ್ರೆ' : 'Hospital', Icons.local_hospital, submitDestination),
+                        _quickNavChip(isKn ? 'ಔಷಧ ಅಂಗಡಿ' : 'Pharmacy', Icons.medication, submitDestination),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _quickNavChip(String label, IconData icon, Function(String) onTap) {
+    return ActionChip(
+      avatar: Icon(icon, size: 18, color: AppTheme.accentCyan),
+      label: Text(label, style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600)),
+      backgroundColor: AppTheme.surface,
+      side: const BorderSide(color: AppTheme.border, width: 1.5),
+      onPressed: () => onTap(label),
+    );
   }
 
   @override
@@ -1184,7 +1478,11 @@ class _NavigationScreenState extends State<NavigationScreen>
                                       Text(
                                         _navService.isNavigating
                                             ? _navService.statusMessage
-                                            : _statusMessage,
+                                            : (_isCameraInitialized
+                                                ? (isKn
+                                                    ? 'ಪಾದಚಾರಿ ಮಾರ್ಗದರ್ಶನ ಸಿದ್ಧವಾಗಿದೆ. ಗಮ್ಯಸ್ಥಾನ ಹೊಂದಿಸಲು "ನ್ಯಾವಿಗೇಟ್" ಟ್ಯಾಪ್ ಮಾಡಿ.'
+                                                    : 'Pedestrian Navigation Ready. Tap "Navigate To..." to begin.')
+                                                : _statusMessage),
                                         style: const TextStyle(
                                           fontSize: 15,
                                           fontWeight: FontWeight.w600,
@@ -1222,87 +1520,142 @@ class _NavigationScreenState extends State<NavigationScreen>
                         },
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: AccessibleButton(
-                              label: _isLiveMonitoringActive
-                                  ? (isKn ? 'ಅಡೆತಡೆ: ಆನ್' : 'Alerts: ON')
-                                  : (isKn ? 'ಅಡೆತಡೆ: ಆಫ್' : 'Alerts: OFF'),
-                              icon: _isLiveMonitoringActive ? Icons.notifications_active : Icons.notifications_off,
-                              backgroundColor: _isLiveMonitoringActive ? AppTheme.surfaceHighlight : AppTheme.surface,
-                              textColor: _isLiveMonitoringActive ? AppTheme.accentCyan : AppTheme.textMuted,
-                              semanticHint: isKn
-                                  ? 'ನೈಜ ಸಮಯದ ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳನ್ನು ಆನ್/ಆಫ್ ಮಾಡುತ್ತದೆ'
-                                  : 'Toggles real-time continuous obstacle announcements',
-                              onPressed: () async {
-                                if (_isLiveMonitoringActive) {
-                                  await _stopLiveObstacleMonitoring();
-                                  await widget.ttsService.speak(
-                                    isKn ? 'ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳನ್ನು ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ.' : 'Live obstacle alerts paused.',
-                                  );
-                                } else {
-                                  _startLiveObstacleMonitoring();
-                                  await widget.ttsService.speak(
-                                    isKn ? 'ಲೈವ್ ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳು ಸಕ್ರಿಯವಾಗಿವೆ.' : 'Live obstacle alerts active.',
-                                  );
-                                }
-                              },
+                      if (!_navService.isNavigating) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AccessibleButton(
+                                label: isKn ? 'ನ್ಯಾವಿಗೇಟ್...' : 'Navigate To...',
+                                icon: Icons.explore,
+                                backgroundColor: AppTheme.primary,
+                                textColor: Colors.black,
+                                semanticLabel: isKn ? 'ಗಮ್ಯಸ್ಥಾನವನ್ನು ಆಯ್ಕೆಮಾಡಿ' : 'Set Destination for Navigation',
+                                semanticHint: isKn
+                                    ? 'ಪಾದಚಾರಿ ಮಾರ್ಗದರ್ಶನಕ್ಕಾಗಿ ಗಮ್ಯಸ್ಥಾನವನ್ನು ಆಯ್ಕೆಮಾಡಲು ಅಥವಾ ಹೇಳಲು ಟ್ಯಾಪ್ ಮಾಡಿ'
+                                    : 'Tap to choose or speak your destination',
+                                onPressed: _promptForDestination,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: AccessibleButton(
-                              label: _navService.isNavigating
-                                  ? (isKn ? 'ನನ್ನ ಸ್ಥಳ' : 'Where Am I')
-                                  : (isKn ? 'ವಿವರಣೆ' : 'Describe'),
-                              icon: _navService.isNavigating ? Icons.my_location : Icons.visibility,
-                              semanticLabel: _navService.isNavigating
-                                  ? (isKn ? 'ಪ್ರಸ್ತುತ ಸ್ಥಳ ಹೇಳಿ' : 'Speak current location')
-                                  : (isKn ? 'ಸುತ್ತಮುತ್ತಲಿನ ವಿವರಣೆ' : 'Describe surroundings'),
-                              semanticHint: _navService.isNavigating
-                                  ? (isKn ? 'ಪ್ರಸ್ತುತ ಜಿಪಿಎಸ್ ವಿಳಾಸವನ್ನು ಹೇಳುತ್ತದೆ' : 'Speaks current GPS street address')
-                                  : (isKn ? 'ಕ್ಯಾಮೆರಾ ಬಳಸಿ ಸುತ್ತಮುತ್ತಲಿನ ವಿವರಣೆ ನೀಡುತ್ತದೆ' : 'Describes surroundings using camera'),
-                              onPressed: () {
-                                if (_navService.isNavigating) {
-                                  _navService.announceCurrentLocation();
-                                } else {
-                                  _describeSurroundings();
-                                }
-                              },
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: AccessibleButton(
+                                label: isKn ? 'ನನ್ನ ಸ್ಥಳ' : 'Where Am I',
+                                icon: Icons.my_location,
+                                semanticLabel: isKn ? 'ಪ್ರಸ್ತುತ ಸ್ಥಳ ಹೇಳಿ' : 'Speak current location',
+                                semanticHint: isKn ? 'ಪ್ರಸ್ತುತ ಜಿಪಿಎಸ್ ವಿಳಾಸವನ್ನು ಹೇಳುತ್ತದೆ' : 'Speaks current GPS street address',
+                                onPressed: () => _navService.announceCurrentLocation(),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: AccessibleButton(
-                              label: isKn ? 'ಮತ್ತೆ ಹೇಳಿ' : 'Repeat',
-                              icon: Icons.replay,
-                              semanticHint: isKn ? 'ಕೊನೆಯ ಮಾರ್ಗದರ್ಶನವನ್ನು ಮತ್ತೆ ಹೇಳುತ್ತದೆ' : 'Repeats the last instruction',
-                              onPressed: () {
-                                if (_navService.isNavigating) {
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AccessibleButton(
+                                label: isKn ? 'ವಿವರಣೆ' : 'Describe View',
+                                icon: Icons.visibility,
+                                semanticLabel: isKn ? 'ಸುತ್ತಮುತ್ತಲಿನ ವಿವರಣೆ' : 'Describe surroundings',
+                                semanticHint: isKn ? 'ಕ್ಯಾಮೆರಾ ಬಳಸಿ ಸುತ್ತಮುತ್ತಲಿನ ವಿವರಣೆ ನೀಡುತ್ತದೆ' : 'Describes surroundings using camera',
+                                onPressed: _describeSurroundings,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: AccessibleButton(
+                                label: _isLiveMonitoringActive
+                                    ? (isKn ? 'ಅಡೆತಡೆ: ಆನ್' : 'Alerts: ON')
+                                    : (isKn ? 'ಅಡೆತಡೆ: ಆಫ್' : 'Alerts: OFF'),
+                                icon: _isLiveMonitoringActive ? Icons.notifications_active : Icons.notifications_off,
+                                backgroundColor: _isLiveMonitoringActive ? AppTheme.surfaceHighlight : AppTheme.surface,
+                                textColor: _isLiveMonitoringActive ? AppTheme.accentCyan : AppTheme.textMuted,
+                                semanticHint: isKn
+                                    ? 'ನೈಜ ಸಮಯದ ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳನ್ನು ಆನ್/ಆಫ್ ಮಾಡುತ್ತದೆ'
+                                    : 'Toggles real-time continuous obstacle announcements',
+                                onPressed: () async {
+                                  if (_isLiveMonitoringActive) {
+                                    await _stopLiveObstacleMonitoring();
+                                    await widget.ttsService.speak(
+                                      isKn ? 'ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳನ್ನು ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ.' : 'Live obstacle alerts paused.',
+                                    );
+                                  } else {
+                                    _startLiveObstacleMonitoring();
+                                    await widget.ttsService.speak(
+                                      isKn ? 'ಲೈವ್ ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳು ಸಕ್ರಿಯವಾಗಿವೆ.' : 'Live obstacle alerts active.',
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AccessibleButton(
+                                label: _isLiveMonitoringActive
+                                    ? (isKn ? 'ಅಡೆತಡೆ: ಆನ್' : 'Alerts: ON')
+                                    : (isKn ? 'ಅಡೆತಡೆ: ಆಫ್' : 'Alerts: OFF'),
+                                icon: _isLiveMonitoringActive ? Icons.notifications_active : Icons.notifications_off,
+                                backgroundColor: _isLiveMonitoringActive ? AppTheme.surfaceHighlight : AppTheme.surface,
+                                textColor: _isLiveMonitoringActive ? AppTheme.accentCyan : AppTheme.textMuted,
+                                semanticHint: isKn
+                                    ? 'ನೈಜ ಸಮಯದ ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳನ್ನು ಆನ್/ಆಫ್ ಮಾಡುತ್ತದೆ'
+                                    : 'Toggles real-time continuous obstacle announcements',
+                                onPressed: () async {
+                                  if (_isLiveMonitoringActive) {
+                                    await _stopLiveObstacleMonitoring();
+                                    await widget.ttsService.speak(
+                                      isKn ? 'ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳನ್ನು ವಿರಾಮಗೊಳಿಸಲಾಗಿದೆ.' : 'Live obstacle alerts paused.',
+                                    );
+                                  } else {
+                                    _startLiveObstacleMonitoring();
+                                    await widget.ttsService.speak(
+                                      isKn ? 'ಲೈವ್ ಅಡೆತಡೆ ಎಚ್ಚರಿಕೆಗಳು ಸಕ್ರಿಯವಾಗಿವೆ.' : 'Live obstacle alerts active.',
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: AccessibleButton(
+                                label: isKn ? 'ನನ್ನ ಸ್ಥಳ' : 'Where Am I',
+                                icon: Icons.my_location,
+                                semanticLabel: isKn ? 'ಪ್ರಸ್ತುತ ಸ್ಥಳ ಹೇಳಿ' : 'Speak current location',
+                                semanticHint: isKn ? 'ಪ್ರಸ್ತುತ ಜಿಪಿಎಸ್ ವಿಳಾಸವನ್ನು ಹೇಳುತ್ತದೆ' : 'Speaks current GPS street address',
+                                onPressed: () => _navService.announceCurrentLocation(),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AccessibleButton(
+                                label: isKn ? 'ಮತ್ತೆ ಹೇಳಿ' : 'Repeat Turn',
+                                icon: Icons.replay,
+                                semanticHint: isKn ? 'ಕೊನೆಯ ಮಾರ್ಗದರ್ಶನವನ್ನು ಮತ್ತೆ ಹೇಳುತ್ತದೆ' : 'Repeats the last turn-by-turn guidance',
+                                onPressed: () {
                                   _navService.repeatCurrentInstruction();
-                                } else {
-                                  widget.ttsService.repeat();
-                                }
-                              },
+                                },
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: AccessibleButton(
-                              label: isKn ? 'ನಿಲ್ಲಿಸಿ' : 'Stop',
-                              icon: Icons.stop_circle,
-                              isDestructive: true,
-                              semanticHint: isKn ? 'ನ್ಯಾವಿಗೇಷನ್ ಮುಗಿಸಿ ಮನೆ ಪರದೆಗೆ ಮರಳುತ್ತದೆ' : 'Exits navigation and returns to home screen',
-                              onPressed: _stopNavigation,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: AccessibleButton(
+                                label: isKn ? 'ನಿಲ್ಲಿಸಿ' : 'Stop Nav',
+                                icon: Icons.stop_circle,
+                                isDestructive: true,
+                                semanticHint: isKn ? 'ನ್ಯಾವಿಗೇಷನ್ ಮುಗಿಸಿ ಮನೆ ಪರದೆಗೆ ಮರಳುತ್ತದೆ' : 'Exits navigation and returns to home screen',
+                                onPressed: _stopNavigation,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),

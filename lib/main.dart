@@ -96,12 +96,14 @@ class _BlindNavigationAppState extends State<BlindNavigationApp> {
             String? dest;
             String? visionAction;
             String? visionArg;
+            bool promptDest = false;
             if (args is String) {
               dest = args;
             } else if (args is Map<String, dynamic>) {
               dest = args['destination'] as String?;
               visionAction = args['visionAction'] as String?;
               visionArg = args['visionArg'] as String?;
+              promptDest = args['promptDestination'] as bool? ?? false;
             }
             return MaterialPageRoute(
               builder: (_) => NavigationScreen(
@@ -114,6 +116,7 @@ class _BlindNavigationAppState extends State<BlindNavigationApp> {
                 initialOcrMode: args is Map ? args['ocrMode'] as String? : null,
                 isSavedLookup: args is Map ? args['isSavedLookup'] as bool? : null,
                 savedNotes: args is Map ? args['savedNotes'] as String? : null,
+                promptDestinationOnLoad: promptDest,
                 voiceCoordinator: _coordinator,
               ),
             );

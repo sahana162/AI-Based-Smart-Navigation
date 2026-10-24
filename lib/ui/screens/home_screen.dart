@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool handleVoiceCommand(VoiceCommand command) {
     switch (command.type) {
       case VoiceCommandType.startNavigation:
-        _openNavigationScreen();
+        _openNavigationScreen(promptDestination: true);
         return true;
       case VoiceCommandType.stopNavigation:
         widget.ttsService.speak(_strings.navNotActive);
@@ -287,10 +287,11 @@ class _HomeScreenState extends State<HomeScreen>
     String? destination,
     String? visionAction,
     String? visionArg,
+    bool promptDestination = false,
   }) {
     final name = widget.storageService.assistantName;
     final strings = _strings;
-    if (destination == null && visionAction == null) {
+    if (destination == null && visionAction == null && !promptDestination) {
       widget.ttsService.speak(strings.navStarting(name));
     }
     Navigator.of(context).push(
@@ -302,6 +303,7 @@ class _HomeScreenState extends State<HomeScreen>
           initialDestination: destination,
           initialVisionAction: visionAction,
           initialVisionArg: visionArg,
+          promptDestinationOnLoad: promptDestination,
           voiceCoordinator: widget.voiceCoordinator,
         ),
       ),
@@ -935,7 +937,7 @@ class _HomeScreenState extends State<HomeScreen>
                             isPrimary: true,
                             minHeight: 56,
                             semanticHint: strings.startNavigationHint,
-                            onPressed: _openNavigationScreen,
+                            onPressed: () => _openNavigationScreen(promptDestination: true),
                           ),
                         ),
                         const SizedBox(width: 10),

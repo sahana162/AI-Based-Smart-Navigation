@@ -435,7 +435,7 @@ class VoiceSessionCoordinator extends ChangeNotifier {
 
       case VoiceCommandType.startNavigation:
         await ttsService.speak(strings.navStarting(storageService.assistantName));
-        navigatorKey.currentState?.pushNamed('/navigation');
+        navigatorKey.currentState?.pushNamed('/navigation', arguments: {'promptDestination': true});
         break;
 
       case VoiceCommandType.stopNavigation:

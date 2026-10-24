@@ -261,10 +261,10 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
 
     final buffer = StringBuffer();
-    places.forEach((key, data) {
-      final name = data['name'] ?? key;
+    for (final data in places) {
+      final name = data['name'] ?? data['tag'] ?? 'Place';
       buffer.write('$name, ');
-    });
+    }
     final listText = buffer.toString();
     final msg = strings.isKannada
         ? 'ಉಳಿಸಲಾದ ಮೆಚ್ಚಿನ ಸ್ಥಳಗಳು: $listText'
@@ -1272,9 +1272,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               )
             else ...[
               Column(
-                children: widget.storageService.favoritePlaces.entries.map((entry) {
-                  final key = entry.key;
-                  final data = entry.value;
+                children: widget.storageService.favoritePlaces.map((data) {
+                  final key = data['tag']?.toString() ?? data['name']?.toString() ?? '';
                   final name = data['name']?.toString() ?? key;
                   final addr = data['address']?.toString() ?? '';
                   final lat = data['lat'] != null ? (data['lat'] as num).toDouble().toStringAsFixed(4) : '';
