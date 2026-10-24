@@ -77,7 +77,7 @@ class _FeatureDetailScreenState extends State<FeatureDetailScreen>
       case 'bus':
         return isKn ? 'ಬಸ್ ಸಂಖ್ಯೆ ಸ್ಕ್ಯಾನರ್ ಪ್ರಾರಂಭಿಸಿ' : 'Scan Bus Route & Numbers Now';
       case 'currency':
-        return isKn ? 'ಕರೆನ್ಸಿ ಸ್ಕ್ಯಾನರ್ ಪ್ರಾರಂಭಿಸಿ' : 'Scan Banknotes Now';
+        return isKn ? 'ಕರೆನ್ಸಿ ಸ್ಕ್ಯಾನರ್ ಪ್ರಾರಂಭಿಸಿ' : 'Scan Notes & Coins Now';
       case 'ocr':
         return isKn ? 'ಪಠ್ಯ ಓದುವಿಕೆ ಪ್ರಾರಂಭಿಸಿ' : 'Read Text & Signs Now';
       case 'describe':

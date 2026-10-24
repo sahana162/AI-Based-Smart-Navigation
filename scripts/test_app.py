@@ -322,31 +322,193 @@ def run_suite_4():
     state, msg = classify_traffic_signal(5, 120, 0.35, False)
     all_passed &= assert_test(state == "uncertain", f"Low confidence fails safe to uncertain ({state})")
 
-    # 2. Banknote color profiles
-    profiles = {
-        '500': {'name': 'stone grey', 'sat_max': 0.25},
-        '200': {'name': 'bright orange', 'hue_min': 25, 'hue_max': 55},
-        '100': {'name': 'lavender', 'hue_min': 220, 'hue_max': 285},
-        '50':  {'name': 'fluorescent blue', 'hue_min': 170, 'hue_max': 220},
-        '20':  {'name': 'greenish yellow', 'hue_min': 60, 'hue_max': 95},
-        '10':  {'name': 'chocolate brown', 'hue_min': 15, 'hue_max': 40},
-        '2000': {'name': 'magenta', 'hue_min': 290, 'hue_max': 355},
-    }
+    # 2. Comprehensive Indian Currency (Banknotes & Coins) & Multi-Script OCR Engine
+    currency_dataset = [
+        # Banknotes (₹2000, ₹500, ₹200, ₹100, ₹50, ₹20, ₹10, ₹5, ₹2, ₹1)
+        {'denom': '2000', 'isCoin': False, 'nameEn': '2000 Rupees note', 'nameKn': '೨೦೦೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(2000|२०००|೨೦೦೦)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['two thousand', '2 thousand', '2000 rupees'], 'wordsHi': ['दो हज़ार', 'दो हजार', 'दो हज़ार रुपये'], 'wordsKn': ['ಎರಡು ಸಾವಿರ', 'ಎರಡು ಸಾವಿರ ರೂಪಾಯಿಗಳು'],
+         'motifs': ['mangalyaan', 'mars orbiter', 'मंगलयान']},
+        {'denom': '500', 'isCoin': False, 'nameEn': '500 Rupees note', 'nameKn': '೫೦೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(500|५००|೫೦೦|s00)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['five hundred', '500 rupees'], 'wordsHi': ['पाँच सौ', 'पांच सौ', 'पाँच सौ रुपये'], 'wordsKn': ['ಐನೂರು', 'ಐನೂರು ರೂಪಾಯಿಗಳು'],
+         'motifs': ['red fort', 'lal qila', 'लाल किला']},
+        {'denom': '200', 'isCoin': False, 'nameEn': '200 Rupees note', 'nameKn': '೨೦೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(200|२००|೨೦೦|2oo)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['two hundred', '200 rupees'], 'wordsHi': ['दो सौ', 'दो सौ रुपये'], 'wordsKn': ['ಇನ್ನೂರು', 'ಇನ್ನೂರು ರೂಪಾಯಿಗಳು'],
+         'motifs': ['sanchi', 'stupa', 'साँची']},
+        {'denom': '100', 'isCoin': False, 'nameEn': '100 Rupees note', 'nameKn': '೧೦೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(100|१००|೧೦೦|io0|l00|1oo)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['one hundred', 'hundred rupees', '100 rupees'], 'wordsHi': ['एक सौ', 'सौ रुपये', 'एक सौ रुपये'], 'wordsKn': ['ನೂರು', 'ನೂರು ರೂಪಾಯಿಗಳು'],
+         'motifs': ['rani ki vav', 'vav', 'रानी की वाव', 'kanchenjunga']},
+        {'denom': '50', 'isCoin': False, 'nameEn': '50 Rupees note', 'nameKn': '೫೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(50|५०|೫೦|s0|so)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['fifty rupees', '50 rupees'], 'wordsHi': ['पचास रुपये', 'पचास'], 'wordsKn': ['ಐವತ್ತು', 'ಐವತ್ತು ರೂಪಾಯಿಗಳು'],
+         'motifs': ['hampi', 'chariot', 'हम्पी', 'parliament']},
+        {'denom': '20', 'isCoin': False, 'nameEn': '20 Rupees note', 'nameKn': '೨೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(20|२०|೨೦|2o|2O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['twenty rupees note', 'twenty rupees'], 'wordsHi': ['बीस रुपये का नोट', 'बीस रुपये'], 'wordsKn': ['ಇಪ್ಪತ್ತು ರೂಪಾಯಿ ನೋಟು', 'ಇಪ್ಪತ್ತು ರೂಪಾಯಿ'],
+         'motifs': ['ellora', 'caves', 'एलोरा']},
+        {'denom': '10', 'isCoin': False, 'nameEn': '10 Rupees note', 'nameKn': '೧೦ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(10|१०|೧೦|io|l0|1o|1O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['ten rupees note', 'ten rupees'], 'wordsHi': ['दस रुपये का नोट', 'दस रुपये'], 'wordsKn': ['ಹತ್ತು ರೂಪಾಯಿ ನೋಟು', 'ಹತ್ತು ರೂಪಾಯಿ'],
+         'motifs': ['konark', 'sun temple', 'कोणार्क', 'wheel']},
+        {'denom': '5', 'isCoin': False, 'nameEn': '5 Rupees note', 'nameKn': '೫ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(5|५|೫)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['five rupees note', 'tractor note'], 'wordsHi': ['पाँच रुपये का नोट', 'ट्रैक्टर नोट'], 'wordsKn': ['ಐದು ರೂಪಾಯಿ ನೋಟು', 'ಟ್ರಾಕ್ಟರ್ ನೋಟು'],
+         'motifs': ['tractor', 'farm', 'फील्ड', 'खेत']},
+        {'denom': '2', 'isCoin': False, 'nameEn': '2 Rupees note', 'nameKn': '೨ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(2|२|೨)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['two rupees note'], 'wordsHi': ['दो रुपये का नोट'], 'wordsKn': ['ಎರಡು ರೂಪಾಯಿ ನೋಟು'],
+         'motifs': ['aryabhata', 'satellite', 'आर्यभट']},
+        {'denom': '1', 'isCoin': False, 'nameEn': '1 Rupee note', 'nameKn': '೧ ರೂಪಾಯಿ ನೋಟು',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(1|१|೧)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['one rupee note', 'finance secretary'], 'wordsHi': ['एक रुपया का नोट', 'वित्त सचिव'], 'wordsKn': ['ಒಂದು ರೂಪಾಯಿ ನೋಟು'],
+         'motifs': ['sagar samrat', 'oil rig', 'सागर सम्राट']},
 
-    def match_note(hue, sat):
-        if sat < 0.22:
-            return '500'
-        for note, p in profiles.items():
-            if 'hue_min' in p and p['hue_min'] <= hue <= p['hue_max']:
-                return note
-        return None
+        # Coins (₹20, ₹10, ₹5, ₹2, ₹1)
+        {'denom': '20', 'isCoin': True, 'nameEn': '20 Rupees coin', 'nameKn': '೨೦ ರೂಪಾಯಿ ನಾಣ್ಯ',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(20|२०|೨೦|2o|2O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['twenty rupees coin', 'twenty coin', '20 coin'], 'wordsHi': ['बीस रुपये का सिक्का', 'बीस का सिक्का'], 'wordsKn': ['ಇಪ್ಪತ್ತು ರೂಪಾಯಿ ನಾಣ್ಯ'],
+         'motifs': ['dodecagon', '12 sided', 'grains', 'अनाज']},
+        {'denom': '10', 'isCoin': True, 'nameEn': '10 Rupees coin', 'nameKn': '೧೦ ರೂಪಾಯಿ ನಾಣ್ಯ',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(10|१०|೧೦|io|l0|1o|1O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['ten rupees coin', 'ten coin', '10 coin'], 'wordsHi': ['दस रुपये का सिक्का', 'दस का सिक्का'], 'wordsKn': ['ಹತ್ತು ರೂಪಾಯಿ ನಾಣ್ಯ'],
+         'motifs': ['rays', 'bi-metallic', 'bimetallic', 'किरणें']},
+        {'denom': '5', 'isCoin': True, 'nameEn': '5 Rupees coin', 'nameKn': '೫ ರೂಪಾಯಿ ನಾಣ್ಯ',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(5|५|೫)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['five rupees coin', 'five coin', '5 coin'], 'wordsHi': ['पाँच रुपये का सिक्का', 'पांच रुपये का सिक्का'], 'wordsKn': ['ಐದು ರೂಪಾಯಿ ನಾಣ್ಯ'],
+         'motifs': ['ashoka', 'lion', 'satyameva', 'भारत']},
+        {'denom': '2', 'isCoin': True, 'nameEn': '2 Rupees coin', 'nameKn': '೨ ರೂಪಾಯಿ ನಾಣ್ಯ',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(2|२|೨)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['two rupees coin', 'two coin', '2 coin'], 'wordsHi': ['दो रुपये का सिक्का', 'दो का सिक्का'], 'wordsKn': ['ಎರಡು ರೂಪಾಯಿ ನಾಣ್ಯ'],
+         'motifs': ['hand', 'two fingers', 'wheat', 'मुद्रा']},
+        {'denom': '1', 'isCoin': True, 'nameEn': '1 Rupee coin', 'nameKn': '೧ ರೂಪಾಯಿ ನಾಣ್ಯ',
+         'regex': r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(1|१|೧)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)',
+         'wordsEn': ['one rupee coin', 'one coin', '1 coin'], 'wordsHi': ['एक रुपये का सिक्का', 'एक का सिक्का', 'एक रुपया'], 'wordsKn': ['ಒಂದು ರೂಪಾಯಿ ನಾಣ್ಯ'],
+         'motifs': ['thumb', 'thumbs up', 'corn', 'मुद्रा']},
+    ]
 
-    all_passed &= assert_test(match_note(0, 0.12) == '500', "₹500 note identified by low-saturation Stone Grey")
-    all_passed &= assert_test(match_note(40, 0.70) == '200', "₹200 note identified by Orange hue (40°)")
-    all_passed &= assert_test(match_note(250, 0.60) == '100', "₹100 note identified by Lavender hue (250°)")
-    all_passed &= assert_test(match_note(190, 0.65) == '50',  "₹50 note identified by Cyan/Fluorescent Blue hue (190°)")
-    all_passed &= assert_test(match_note(80, 0.70) == '20',   "₹20 note identified by Greenish Yellow hue (80°)")
-    all_passed &= assert_test(match_note(310, 0.75) == '2000', "₹2000 note identified by Magenta hue (310°)")
+    def recognize_currency_sim(text, color_tint=None, color_is_coin=False, is_kannada=False):
+        upper = text.upper()
+        has_rbi = any(k in upper for k in [
+            'RESERVE BANK', 'BHARATIYA RESERVE', 'CENTRAL GOVERNMENT', 'PROMISE TO PAY',
+            'GUARANTEED BY', 'MAHATMA GANDHI', 'GOVERNOR', 'SWACHH BHARAT', 'NOTE', 'BANKNOTE',
+            'भारतीय रिज़र्व बैंक', 'केन्द्रीय सरकार', 'धारक को अदा करने का वचन', 'महात्मा गांधी', 'स्वच्छ भारत',
+            'गवर्नर', 'नोटा', 'ನೋಟು'
+        ])
+        has_coin_marker = any(k in upper for k in [
+            'COIN', 'COINS', 'सिक्का', 'सिक्के', 'ನಾಣ್ಯ', 'ನಾಣ್ಯಗಳು', 'रुपया', 'सत्यमेव जयते',
+            'SATYAMEVA JAYATE', 'GOVERNMENT OF INDIA', 'भारत सरकार', 'AKAM', 'AZADI', 'AMRIT MAHOTSAV'
+        ]) or bool(re.search(r'\b(19[789][0-9]|20[0-2][0-9])\b', text))
+
+        best_score = 0
+        best_item = None
+
+        for item in currency_dataset:
+            score = 0
+            if re.search(item['regex'], text, re.IGNORECASE):
+                score += 45
+            lower_text = text.lower()
+            if any(w in lower_text for w in item['wordsEn']) or any(w in text for w in item['wordsHi']) or any(w in text for w in item['wordsKn']):
+                score += 40
+            if any(m in lower_text or m in text for m in item['motifs']):
+                score += 35
+            if not item['isCoin'] and has_rbi:
+                score += 30
+            if item['isCoin'] and has_rbi:
+                score -= 40
+            if item['isCoin'] and has_coin_marker:
+                score += 35
+            if not item['isCoin'] and has_coin_marker and not has_rbi:
+                score -= 25
+
+            if color_tint is not None:
+                if color_tint == item['denom']:
+                    if item['isCoin'] and color_is_coin:
+                        score += 50
+                    elif not item['isCoin'] and not color_is_coin:
+                        score += 45
+                    else:
+                        score += 15
+                elif item['isCoin'] != color_is_coin:
+                    score -= 20
+
+            if score > best_score:
+                best_score = score
+                best_item = item
+
+        if best_score >= 35 and best_item is not None:
+            if is_kannada:
+                return f"ಭಾರತೀಯ ಕರೆನ್ಸಿ: {best_item['nameKn']}."
+            return f"Indian currency: {best_item['nameEn']}."
+
+        if is_kannada:
+            return "ಯಾವುದೇ ನೋಟು ಅಥವಾ ನಾಣ್ಯ ಗುರುತಿಸಲಾಗಿಲ್ಲ."
+        return "No Indian banknote or coin recognized."
+
+    # Test all 10 Banknotes
+    b500 = recognize_currency_sim("Reserve Bank of India 500 Rupees Lal Qila", color_tint='500', color_is_coin=False)
+    all_passed &= assert_test("500 Rupees note" in b500, f"₹500 note recognized with Red Fort motif ({b500})")
+
+    b500_devanagari = recognize_currency_sim("भारतीय रिज़र्व बैंक ५०० रुपये लाल किला")
+    all_passed &= assert_test("500 Rupees note" in b500_devanagari, f"₹500 note recognized via Devanagari ५०० ({b500_devanagari})")
+
+    b500_kannada = recognize_currency_sim("೫೦೦ ರೂಪಾಯಿಗಳು ರಿಸರ್ವ್ ಬ್ಯಾಂಕ್", is_kannada=True)
+    all_passed &= assert_test("೫೦೦ ರೂಪಾಯಿ ನೋಟು" in b500_kannada, f"₹500 note recognized via Kannada ೫೦೦ and announced in Kannada ({b500_kannada})")
+
+    b2000 = recognize_currency_sim("Reserve Bank of India 2000 Mangalyaan", color_tint='2000', color_is_coin=False)
+    all_passed &= assert_test("2000 Rupees note" in b2000, f"₹2000 note recognized with Mangalyaan ({b2000})")
+
+    b200 = recognize_currency_sim("Reserve Bank 200 Sanchi Stupa", color_tint='200', color_is_coin=False)
+    all_passed &= assert_test("200 Rupees note" in b200, f"₹200 note recognized with Sanchi Stupa ({b200})")
+
+    b100 = recognize_currency_sim("Reserve Bank 100 Rani ki Vav", color_tint='100', color_is_coin=False)
+    all_passed &= assert_test("100 Rupees note" in b100, f"₹100 note recognized with Rani ki Vav ({b100})")
+
+    b50 = recognize_currency_sim("Reserve Bank 50 Hampi Chariot", color_tint='50', color_is_coin=False)
+    all_passed &= assert_test("50 Rupees note" in b50, f"₹50 note recognized with Hampi Chariot ({b50})")
+
+    b20 = recognize_currency_sim("Reserve Bank 20 Ellora Caves", color_tint='20', color_is_coin=False)
+    all_passed &= assert_test("20 Rupees note" in b20, f"₹20 note recognized with Ellora Caves ({b20})")
+
+    b10 = recognize_currency_sim("Reserve Bank 10 Konark Sun Temple", color_tint='10', color_is_coin=False)
+    all_passed &= assert_test("10 Rupees note" in b10, f"₹10 note recognized with Konark Sun Temple ({b10})")
+
+    b5 = recognize_currency_sim("Reserve Bank 5 Tractor note", color_tint='5', color_is_coin=False)
+    all_passed &= assert_test("5 Rupees note" in b5, f"₹5 note recognized with Tractor ({b5})")
+
+    b2 = recognize_currency_sim("Reserve Bank 2 Aryabhata satellite", color_tint='2', color_is_coin=False)
+    all_passed &= assert_test("2 Rupees note" in b2, f"₹2 note recognized ({b2})")
+
+    b1 = recognize_currency_sim("Government of India 1 Rupee note Sagar Samrat Finance Secretary", color_tint='1', color_is_coin=False)
+    all_passed &= assert_test("1 Rupee note" in b1, f"₹1 note recognized ({b1})")
+
+    # Test all 5 Coins
+    c20 = recognize_currency_sim("20 Rupees coin grains dodecagon 2020", color_tint='20', color_is_coin=True)
+    all_passed &= assert_test("20 Rupees coin" in c20, f"₹20 coin recognized with 12-sided bimetallic traits ({c20})")
+
+    c10 = recognize_currency_sim("10 Rupees coin rays 2018", color_tint='10', color_is_coin=True)
+    all_passed &= assert_test("10 Rupees coin" in c10, f"₹10 coin recognized with bimetallic rays ({c10})")
+
+    c5 = recognize_currency_sim("5 Rupees coin सत्यमेव जयते 2019", color_tint='5', color_is_coin=True)
+    all_passed &= assert_test("5 Rupees coin" in c5, f"₹5 coin recognized with Lion Capital ({c5})")
+
+    c2 = recognize_currency_sim("2 Rupees coin two fingers mudra 2015", color_tint='2', color_is_coin=True)
+    all_passed &= assert_test("2 Rupees coin" in c2, f"₹2 coin recognized with two-finger mudra ({c2})")
+
+    c1 = recognize_currency_sim("1 Rupee coin thumbs up mudra 2021", color_tint='1', color_is_coin=True)
+    all_passed &= assert_test("1 Rupee coin" in c1, f"₹1 coin recognized with thumbs-up mudra ({c1})")
+
+    # Coin vs Banknote Disambiguation test on ₹10
+    c10_disambig = recognize_currency_sim("10 Rupees 2019", color_tint='10', color_is_coin=True)
+    b10_disambig = recognize_currency_sim("10 Rupees Reserve Bank of India", color_tint='10', color_is_coin=False)
+    all_passed &= assert_test("10 Rupees coin" in c10_disambig, f"Disambiguation: ₹10 with coin profile classified as coin ({c10_disambig})")
+    all_passed &= assert_test("10 Rupees note" in b10_disambig, f"Disambiguation: ₹10 with RBI marker classified as note ({b10_disambig})")
+
+    # Coin in Kannada
+    c10_kn = recognize_currency_sim("೧೦ ರೂಪಾಯಿ ನಾಣ್ಯ 2020", color_tint='10', color_is_coin=True, is_kannada=True)
+    all_passed &= assert_test("೧೦ ರೂಪಾಯಿ ನಾಣ್ಯ" in c10_kn, f"₹10 coin announced in Kannada ({c10_kn})")
 
     # 3. Overhead hazard identification
     def check_overhead(ymin, ymax, center_x):

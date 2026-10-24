@@ -500,7 +500,7 @@ class VoiceSessionCoordinator extends ChangeNotifier {
         await ttsService.speak(
           strings.isKannada
               ? 'ಕರೆನ್ಸಿ ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ.'
-              : 'Checking banknote.',
+              : 'Checking currency.',
         );
         navigatorKey.currentState?.pushNamed('/navigation', arguments: {'visionAction': 'currency'});
         break;

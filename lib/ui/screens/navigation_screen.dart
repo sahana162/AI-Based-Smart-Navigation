@@ -674,7 +674,7 @@ class _NavigationScreenState extends State<NavigationScreen>
       final xFile = await _captureImageSafely();
       if (xFile == null) return;
       tempPath = xFile.path;
-      final result = await _visionService.recognizeBanknote(
+      final result = await _visionService.recognizeCurrency(
         xFile.path,
         isKannada: widget.ttsService.isKannada,
       );
@@ -686,7 +686,7 @@ class _NavigationScreenState extends State<NavigationScreen>
     } catch (e) {
       debugPrint('Recognize currency error: $e');
       await widget.ttsService.speak(
-        widget.ttsService.isKannada ? 'ಕರೆನ್ಸಿ ನೋಟು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ: $e' : 'Could not check banknote: $e',
+        widget.ttsService.isKannada ? 'ಕರೆನ್ಸಿ ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ: $e' : 'Could not check currency: $e',
       );
     } finally {
       if (tempPath != null) _safeDeleteFile(tempPath);

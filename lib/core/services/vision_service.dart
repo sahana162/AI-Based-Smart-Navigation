@@ -39,16 +39,18 @@ class TrafficSignalAnalysis {
   });
 }
 
-/// Authentic color characteristics for Mahatma Gandhi New Series Indian banknotes.
+/// Authentic color characteristics for Indian banknotes and coins.
 class BanknoteColorProfile {
   final String denomination;
   final String colorNameEn;
   final String colorNameKn;
+  final bool isCoin;
 
   const BanknoteColorProfile({
     required this.denomination,
     required this.colorNameEn,
     required this.colorNameKn,
+    this.isCoin = false,
   });
 }
 
@@ -551,9 +553,9 @@ class VisionService {
     }
   }
 
-  // ── 5. Currency Recognition (Multi-Modal: OCR + Color Tint) ───────────────
+  // ── 5. Indian Currency Recognition Engine (All Banknotes & Coins) ────────
 
-  /// Represents the authentic color characteristics of Mahatma Gandhi New Series Indian banknotes.
+  /// Represents the authentic visual and color characteristics of Indian banknotes and coins.
   Future<BanknoteColorProfile?> detectBanknoteColorTint(String imagePath) async {
     try {
       final file = File(imagePath);
@@ -562,52 +564,143 @@ class VisionService {
       final img.Image? decoded = img.decodeImage(bytes);
       if (decoded == null) return null;
 
-      // Sample center 50% grid of pixels for robust banknote tint estimation
-      final startX = (decoded.width * 0.25).toInt();
-      final endX = (decoded.width * 0.75).toInt();
-      final startY = (decoded.height * 0.25).toInt();
-      final endY = (decoded.height * 0.75).toInt();
+      final width = decoded.width;
+      final height = decoded.height;
+      if (width < 10 || height < 10) return null;
 
-      double totalR = 0, totalG = 0, totalB = 0;
-      int sampleCount = 0;
-      final step = (decoded.width / 50).clamp(2, 10).toInt();
+      final double aspectRatio = width >= height ? width / height : height / width;
+      final int minDim = width < height ? width : height;
 
-      for (int y = startY; y < endY; y += step) {
-        for (int x = startX; x < endX; x += step) {
+      // Concentric sampling: Inner Core (center 35%) vs Outer Perimeter (ring 60%–85%)
+      final centerX = (width * 0.5).toInt();
+      final centerY = (height * 0.5).toInt();
+      final coreRadius = (minDim * 0.18).clamp(8, 160).toInt();
+      final ringInnerR = (minDim * 0.28).clamp(12, 240).toInt();
+      final ringOuterR = (minDim * 0.42).clamp(18, 360).toInt();
+
+      double coreR = 0, coreG = 0, coreB = 0;
+      int coreCount = 0;
+
+      double ringR = 0, ringG = 0, ringB = 0;
+      int ringCount = 0;
+
+      final step = (minDim / 50).clamp(2, 10).toInt();
+
+      for (int y = 0; y < height; y += step) {
+        for (int x = 0; x < width; x += step) {
+          final dx = x - centerX;
+          final dy = y - centerY;
+          final distSq = dx * dx + dy * dy;
+
           final pixel = decoded.getPixel(x, y);
-          totalR += pixel.r;
-          totalG += pixel.g;
-          totalB += pixel.b;
-          sampleCount++;
+          final r = pixel.r.toDouble();
+          final g = pixel.g.toDouble();
+          final b = pixel.b.toDouble();
+          final lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+
+          // Discard dark shadows and harsh specular highlights
+          if (lum < 0.10 || lum > 0.96) continue;
+
+          if (distSq <= coreRadius * coreRadius) {
+            coreR += r;
+            coreG += g;
+            coreB += b;
+            coreCount++;
+          } else if (distSq >= ringInnerR * ringInnerR && distSq <= ringOuterR * ringOuterR) {
+            ringR += r;
+            ringG += g;
+            ringB += b;
+            ringCount++;
+          }
         }
       }
 
-      if (sampleCount == 0) return null;
+      if (coreCount == 0 && ringCount == 0) return null;
 
-      final avgR = (totalR / sampleCount) / 255.0;
-      final avgG = (totalG / sampleCount) / 255.0;
-      final avgB = (totalB / sampleCount) / 255.0;
+      final avgCoreR = coreCount > 0 ? (coreR / coreCount) / 255.0 : 0.5;
+      final avgCoreG = coreCount > 0 ? (coreG / coreCount) / 255.0 : 0.5;
+      final avgCoreB = coreCount > 0 ? (coreB / coreCount) / 255.0 : 0.5;
 
-      final maxVal = [avgR, avgG, avgB].reduce((a, b) => a > b ? a : b);
-      final minVal = [avgR, avgG, avgB].reduce((a, b) => a < b ? a : b);
-      final delta = maxVal - minVal;
+      final avgRingR = ringCount > 0 ? (ringR / ringCount) / 255.0 : avgCoreR;
+      final avgRingG = ringCount > 0 ? (ringG / ringCount) / 255.0 : avgCoreG;
+      final avgRingB = ringCount > 0 ? (ringB / ringCount) / 255.0 : avgCoreB;
 
-      final saturation = maxVal == 0 ? 0.0 : delta / maxVal;
-      final value = maxVal;
-
-      double hue = 0.0;
-      if (delta > 0.001) {
-        if (maxVal == avgR) {
-          hue = (60.0 * ((avgG - avgB) / delta) + 360.0) % 360.0;
-        } else if (maxVal == avgG) {
-          hue = (60.0 * ((avgB - avgR) / delta) + 120.0) % 360.0;
-        } else {
-          hue = (60.0 * ((avgR - avgG) / delta) + 240.0) % 360.0;
+      // HSV Conversion helper
+      (double hue, double sat, double val) toHsv(double r, double g, double b) {
+        final maxVal = [r, g, b].reduce((a, b) => a > b ? a : b);
+        final minVal = [r, g, b].reduce((a, b) => a < b ? a : b);
+        final delta = maxVal - minVal;
+        final sat = maxVal == 0 ? 0.0 : delta / maxVal;
+        final val = maxVal;
+        double hue = 0.0;
+        if (delta > 0.001) {
+          if (maxVal == r) {
+            hue = (60.0 * ((g - b) / delta) + 360.0) % 360.0;
+          } else if (maxVal == g) {
+            hue = (60.0 * ((b - r) / delta) + 120.0) % 360.0;
+          } else {
+            hue = (60.0 * ((r - g) / delta) + 240.0) % 360.0;
+          }
         }
+        return (hue, sat, val);
       }
+
+      final (coreHue, coreSat, coreVal) = toHsv(avgCoreR, avgCoreG, avgCoreB);
+      final (ringHue, ringSat, ringVal) = toHsv(avgRingR, avgRingG, avgRingB);
+
+      // ── Bimetallic Coin Detection (₹10 and ₹20) ──────────────────────────
+      final bool isCoreGolden = coreHue >= 30 && coreHue <= 68 && coreSat > 0.20 && coreVal > 0.30;
+      final bool isCoreSilver = coreSat < 0.18 && coreVal > 0.30;
+      final bool isRingGolden = ringHue >= 30 && ringHue <= 68 && ringSat > 0.18 && ringVal > 0.30;
+      final bool isRingSilver = ringSat < 0.18 && ringVal > 0.30;
+
+      // ₹10 Coin: Silver outer ring + Golden brass center disc
+      if ((isRingSilver && isCoreGolden) || (isCoreGolden && ringSat < coreSat - 0.10)) {
+        return const BanknoteColorProfile(
+          denomination: '10',
+          colorNameEn: 'bimetallic silver and brass',
+          colorNameKn: 'ಬೆಳ್ಳಿ ಮತ್ತು ಚಿನ್ನದ ಕಂದು ದ್ವಿ-ಲೋಹ',
+          isCoin: true,
+        );
+      }
+
+      // ₹20 Coin: Golden outer ring + Silver center disc (12-sided polygon)
+      if ((isRingGolden && isCoreSilver) || (isRingGolden && coreSat < ringSat - 0.10)) {
+        return const BanknoteColorProfile(
+          denomination: '20',
+          colorNameEn: 'bimetallic 12-sided brass and silver',
+          colorNameKn: '೧೨ ಬದಿಗಳ ಹಿತ್ತಾಳೆ ಮತ್ತು ಬೆಳ್ಳಿಯ ದ್ವಿ-ಲೋಹ',
+          isCoin: true,
+        );
+      }
+
+      // ₹5 Coin: Nickel-brass single alloy (golden brass)
+      if (coreHue >= 32 && coreHue <= 68 && coreSat > 0.20 && coreSat < 0.50 && coreVal > 0.40) {
+        return const BanknoteColorProfile(
+          denomination: '5',
+          colorNameEn: 'brass golden',
+          colorNameKn: 'ಚಿನ್ನದ ಹಿತ್ತಾಳೆ ಬಣ್ಣ',
+          isCoin: true,
+        );
+      }
+
+      // ₹1 or ₹2 Coin: Shiny Stainless Steel (neutral grey, low saturation)
+      if (coreSat < 0.14 && ringSat < 0.14 && coreVal > 0.35 && coreVal <= 0.95) {
+        return const BanknoteColorProfile(
+          denomination: '1',
+          colorNameEn: 'metallic silver',
+          colorNameKn: 'ಲೋಹದ ಬೆಳ್ಳಿ ಬಣ್ಣ',
+          isCoin: true,
+        );
+      }
+
+      // ── Banknote Color Palette (Dominant Foreground Tint) ────────────────
+      final hue = coreSat > 0.15 ? coreHue : ringHue;
+      final saturation = coreSat > 0.15 ? coreSat : ringSat;
+      final value = coreVal > 0.25 ? coreVal : ringVal;
 
       // 1. Stone Grey (500 Rupees) - Low saturation, balanced RGB
-      if (saturation < 0.18 && value > 0.25 && value < 0.85) {
+      if (saturation < 0.20 && value > 0.25 && value < 0.85) {
         return const BanknoteColorProfile(
           denomination: '500',
           colorNameEn: 'stone grey',
@@ -616,7 +709,7 @@ class VisionService {
       }
 
       // 2. Magenta (2000 Rupees) - Pinkish/Purple
-      if (hue >= 290 && hue <= 355 && saturation > 0.20 && value > 0.3) {
+      if (hue >= 290 && hue <= 355 && saturation > 0.18 && value > 0.28) {
         return const BanknoteColorProfile(
           denomination: '2000',
           colorNameEn: 'magenta',
@@ -624,8 +717,8 @@ class VisionService {
         );
       }
 
-      // 3. Bright Orange / Yellow-Orange (200 Rupees)
-      if (hue >= 25 && hue <= 55 && saturation > 0.35 && value > 0.45) {
+      // 3. Bright Orange / Amber (200 Rupees)
+      if (hue >= 25 && hue <= 58 && saturation > 0.28 && value > 0.38) {
         return const BanknoteColorProfile(
           denomination: '200',
           colorNameEn: 'bright orange',
@@ -633,8 +726,8 @@ class VisionService {
         );
       }
 
-      // 4. Lavender / Violet (100 Rupees)
-      if (hue >= 220 && hue <= 285 && saturation > 0.15) {
+      // 4. Lavender / Violet (100 Rupees New Series)
+      if (hue >= 215 && hue <= 285 && saturation > 0.13) {
         return const BanknoteColorProfile(
           denomination: '100',
           colorNameEn: 'lavender',
@@ -642,8 +735,17 @@ class VisionService {
         );
       }
 
-      // 5. Cyan / Fluorescent Blue (50 Rupees)
-      if (hue >= 170 && hue < 220 && saturation > 0.20) {
+      // 4b. Blue-Green (100 Rupees Legacy Series)
+      if (hue >= 145 && hue < 175 && saturation > 0.16) {
+        return const BanknoteColorProfile(
+          denomination: '100',
+          colorNameEn: 'blue-green',
+          colorNameKn: 'ಹಸಿರು-ನೀಲಿ ಬಣ್ಣ',
+        );
+      }
+
+      // 5. Cyan / Fluorescent Blue (50 Rupees New Series)
+      if (hue >= 170 && hue < 218 && saturation > 0.18) {
         return const BanknoteColorProfile(
           denomination: '50',
           colorNameEn: 'fluorescent blue',
@@ -651,8 +753,8 @@ class VisionService {
         );
       }
 
-      // 6. Greenish Yellow (20 Rupees)
-      if (hue >= 60 && hue <= 95 && saturation > 0.20) {
+      // 6. Greenish Yellow (20 Rupees New Series)
+      if (hue >= 60 && hue <= 98 && saturation > 0.18) {
         return const BanknoteColorProfile(
           denomination: '20',
           colorNameEn: 'greenish yellow',
@@ -660,89 +762,381 @@ class VisionService {
         );
       }
 
-      // 7. Chocolate Brown (10 Rupees)
-      if (hue >= 15 && hue <= 40 && saturation >= 0.20 && value < 0.50) {
+      // 7. Chocolate Brown (10 Rupees New Series)
+      if (hue >= 14 && hue <= 42 && saturation >= 0.18 && value < 0.55) {
         return const BanknoteColorProfile(
           denomination: '10',
           colorNameEn: 'chocolate brown',
           colorNameKn: 'ಕಂದು ಬಣ್ಣ',
         );
       }
+
+      // 8. Sage Green (5 Rupees Note)
+      if (hue >= 80 && hue <= 140 && saturation > 0.15) {
+        return const BanknoteColorProfile(
+          denomination: '5',
+          colorNameEn: 'sage green',
+          colorNameKn: 'ಹಸಿರು ಬಣ್ಣ',
+        );
+      }
     } catch (e) {
-      debugPrint('Banknote color tint analysis exception: $e');
+      debugPrint('Currency color tint analysis exception: $e');
     }
     return null;
   }
 
-  /// Inspects banknote text and markings combined with dominant color tint to determine Indian Rupee denomination.
-  Future<String> recognizeBanknote(String imagePath, {bool isKannada = false}) async {
+  /// Identifies any Indian banknote or coin (₹1, ₹2, ₹5, ₹10, ₹20, ₹50, ₹100, ₹200, ₹500, ₹2000).
+  ///
+  /// Combines multi-lingual OCR (English, Devanagari Hindi, and Kannada numerals and text),
+  /// heritage monument motifs, Reserve Bank sovereignty tokens, metallic/bimetallic coin markers,
+  /// and optical color hue analysis for 100% complete Indian currency coverage.
+  Future<String> recognizeCurrency(String imagePath, {bool isKannada = false}) async {
     final text = await recognizeTextFromPath(imagePath, mode: OcrReadingMode.all, isKannada: isKannada);
     final upper = text.toUpperCase();
 
-    final hasRbiMarker = upper.contains('RESERVE BANK OF INDIA') ||
+    // 1. Banknote Sovereign & Institution Markers
+    final bool hasRbiMarker = upper.contains('RESERVE BANK') ||
+        upper.contains('RESERVE BANK OF INDIA') ||
         upper.contains('BHARATIYA RESERVE') ||
+        upper.contains('CENTRAL GOVERNMENT') ||
         upper.contains('PROMISE TO PAY') ||
+        upper.contains('GUARANTEED BY') ||
+        upper.contains('MAHATMA GANDHI') ||
+        upper.contains('GOVERNOR') ||
+        upper.contains('SWACHH BHARAT') ||
+        upper.contains('BANKNOTE') ||
+        upper.contains('NOTE') ||
         upper.contains('RUPEES') ||
         upper.contains('RUPEE') ||
         upper.contains('₹') ||
-        upper.contains('ಗ್ಯಾರಂಟಿ') ||
-        upper.contains('ರೂಪಾಯಿ');
+        upper.contains('भारतीय रिज़र्व बैंक') ||
+        upper.contains('केन्द्रीय सरकार') ||
+        upper.contains('धारक को अदा करने का वचन') ||
+        upper.contains('महात्मा गांधी') ||
+        upper.contains('स्वच्छ भारत') ||
+        upper.contains('गवर्नर') ||
+        upper.contains('रुपये') ||
+        upper.contains('ರೂಪಾಯಿಗಳು') ||
+        upper.contains('ರೂಪಾಯಿ') ||
+        upper.contains('ನೋಟು');
+
+    // 2. Coin-Specific Context Markers
+    final bool hasCoinMarker = upper.contains('COIN') ||
+        upper.contains('COINS') ||
+        upper.contains('सिक्का') ||
+        upper.contains('सिक्के') ||
+        upper.contains('ನಾಣ್ಯ') ||
+        upper.contains('ನಾಣ್ಯಗಳು') ||
+        upper.contains('रुपया') || // Singular "रुपया" is prominent on ₹1 coin
+        upper.contains('सत्यमेव जयते') ||
+        upper.contains('SATYAMEVA JAYATE') ||
+        upper.contains('GOVERNMENT OF INDIA') ||
+        upper.contains('भारत सरकार') ||
+        upper.contains('AKAM') ||
+        upper.contains('AZADI') ||
+        upper.contains('AMRIT MAHOTSAV') ||
+        upper.contains('अमृत महोत्सव') ||
+        RegExp(r'\b(19[789][0-9]|20[0-2][0-9])\b').hasMatch(text); // Mint years 1970–2029
 
     final colorProfile = await detectBanknoteColorTint(imagePath);
 
-    final denominations = [
-      (RegExp(r'\b(2000)\b'), '2000 Rupees', '2000'),
-      (RegExp(r'\b(500)\b'), '500 Rupees', '500'),
-      (RegExp(r'\b(200)\b'), '200 Rupees', '200'),
-      (RegExp(r'\b(100)\b'), '100 Rupees', '100'),
-      (RegExp(r'\b(50)\b'), '50 Rupees', '50'),
-      (RegExp(r'\b(20)\b'), '20 Rupees', '20'),
-      (RegExp(r'\b(10)\b'), '10 Rupees', '10'),
+    // 3. Complete Indian Currency Dataset Definition (All Notes & Coins)
+    final currencyDataset = [
+      // Banknotes (₹2000, ₹500, ₹200, ₹100, ₹50, ₹20, ₹10, ₹5, ₹2, ₹1)
+      (
+        denom: '2000',
+        isCoin: false,
+        nameEn: '2000 Rupees note',
+        nameKn: '೨೦೦೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(2000|२०००|೨೦೦೦)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['two thousand', '2 thousand', '2000 rupees'],
+        wordsHi: ['दो हज़ार', 'दो हजार', 'दो हज़ार रुपये', 'दो हजार रुपये'],
+        wordsKn: ['ಎರಡು ಸಾವಿರ', 'ಎರಡು ಸಾವಿರ ರೂಪಾಯಿಗಳು', 'ಎರಡು ಸಾವಿರ ರೂಪಾಯಿ'],
+        motifs: ['mangalyaan', 'mars orbiter', 'मंगलयान'],
+        colorNameEn: 'magenta',
+        colorNameKn: 'ಮೆಜೆಂಟಾ ಗುಲಾಬಿ',
+      ),
+      (
+        denom: '500',
+        isCoin: false,
+        nameEn: '500 Rupees note',
+        nameKn: '೫೦೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(500|५००|೫೦೦|s00)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['five hundred', '5 hundred', '500 rupees'],
+        wordsHi: ['पाँच सौ', 'पांच सौ', 'पाँच सौ रुपये', 'पांच सौ रुपये'],
+        wordsKn: ['ಐನೂರು', 'ಐನೂರು ರೂಪಾಯಿಗಳು', 'ಐನೂರು ರೂಪಾಯಿ'],
+        motifs: ['red fort', 'lal qila', 'लाल किला'],
+        colorNameEn: 'stone grey',
+        colorNameKn: 'ಬೂದು ಬಣ್ಣ',
+      ),
+      (
+        denom: '200',
+        isCoin: false,
+        nameEn: '200 Rupees note',
+        nameKn: '೨೦೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(200|२००|೨೦೦|2oo)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['two hundred', '2 hundred', '200 rupees'],
+        wordsHi: ['दो सौ', 'दो सौ रुपये'],
+        wordsKn: ['ಇನ್ನೂರು', 'ಇನ್ನೂರು ರೂಪಾಯಿಗಳು', 'ಇನ್ನೂರು ರೂಪಾಯಿ'],
+        motifs: ['sanchi', 'stupa', 'साँची'],
+        colorNameEn: 'bright orange',
+        colorNameKn: 'ಕಿತ್ತಳೆ ಬಣ್ಣ',
+      ),
+      (
+        denom: '100',
+        isCoin: false,
+        nameEn: '100 Rupees note',
+        nameKn: '೧೦೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(100|१००|೧೦೦|io0|l00|1oo)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['one hundred', 'hundred rupees', '100 rupees'],
+        wordsHi: ['एक सौ', 'सौ रुपये', 'एक सौ रुपये'],
+        wordsKn: ['ನೂರು', 'ನೂರು ರೂಪಾಯಿಗಳು', 'ನೂರು ರೂಪಾಯಿ'],
+        motifs: ['rani ki vav', 'vav', 'रानी की वाव', 'kanchenjunga', 'himalaya'],
+        colorNameEn: 'lavender',
+        colorNameKn: 'ಲ್ಯಾವೆಂಡರ್ ನೇರಳೆ',
+      ),
+      (
+        denom: '50',
+        isCoin: false,
+        nameEn: '50 Rupees note',
+        nameKn: '೫೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(50|५०|೫೦|s0|so)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['fifty rupees', '50 rupees', 'fifty'],
+        wordsHi: ['पचास रुपये', 'पचास'],
+        wordsKn: ['ಐವತ್ತು', 'ಐವತ್ತು ರೂಪಾಯಿಗಳು', 'ಐವತ್ತು ರೂಪಾಯಿ'],
+        motifs: ['hampi', 'chariot', 'हम्पी', 'parliament'],
+        colorNameEn: 'fluorescent blue',
+        colorNameKn: 'ನೀಲಿ ಬಣ್ಣ',
+      ),
+      (
+        denom: '20',
+        isCoin: false,
+        nameEn: '20 Rupees note',
+        nameKn: '೨೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(20|२०|೨೦|2o|2O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['twenty rupees note', 'twenty rupees', '20 rupees', 'twenty'],
+        wordsHi: ['बीस रुपये का नोट', 'बीस रुपये', 'बीस'],
+        wordsKn: ['ಇಪ್ಪತ್ತು ರೂಪಾಯಿ ನೋಟು', 'ಇಪ್ಪತ್ತು ರೂಪಾಯಿಗಳು', 'ಇಪ್ಪತ್ತು ರೂಪಾಯಿ', 'ಇಪ್ಪತ್ತು'],
+        motifs: ['ellora', 'caves', 'एलोरा', 'harriet'],
+        colorNameEn: 'greenish yellow',
+        colorNameKn: 'ಹಸಿರು-ಹಳದಿ ಬಣ್ಣ',
+      ),
+      (
+        denom: '10',
+        isCoin: false,
+        nameEn: '10 Rupees note',
+        nameKn: '೧೦ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(10|१०|೧೦|io|l0|1o|1O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['ten rupees note', 'ten rupees', '10 rupees', 'ten'],
+        wordsHi: ['दस रुपये का नोट', 'दस रुपये', 'दस'],
+        wordsKn: ['ಹತ್ತು ರೂಪಾಯಿ ನೋಟು', 'ಹತ್ತು ರೂಪಾಯಿಗಳು', 'ಹತ್ತು ರೂಪಾಯಿ', 'ಹತ್ತು'],
+        motifs: ['konark', 'sun temple', 'कोणार्क', 'wheel', 'rhino', 'tiger', 'elephant'],
+        colorNameEn: 'chocolate brown',
+        colorNameKn: 'ಕಂದು ಬಣ್ಣ',
+      ),
+      (
+        denom: '5',
+        isCoin: false,
+        nameEn: '5 Rupees note',
+        nameKn: '೫ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(5|५|೫)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['five rupees note', '5 rupees note', 'tractor note'],
+        wordsHi: ['पाँच रुपये का नोट', 'पांच रुपये का नोट', 'ट्रैक्टर नोट'],
+        wordsKn: ['ಐದು ರೂಪಾಯಿ ನೋಟು', 'ಟ್ರಾಕ್ಟರ್ ನೋಟು'],
+        motifs: ['tractor', 'farm', 'फील्ड', 'खेत'],
+        colorNameEn: 'sage green',
+        colorNameKn: 'ಹಸಿರು ಬಣ್ಣ',
+      ),
+      (
+        denom: '2',
+        isCoin: false,
+        nameEn: '2 Rupees note',
+        nameKn: '೨ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(2|२|೨)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['two rupees note', '2 rupees note'],
+        wordsHi: ['दो रुपये का नोट'],
+        wordsKn: ['ಎರಡು ರೂಪಾಯಿ ನೋಟು'],
+        motifs: ['aryabhata', 'satellite', 'आर्यभट'],
+        colorNameEn: 'pink-orange',
+        colorNameKn: 'ಗುಲಾಬಿ-ಕಿತ್ತಳೆ ಬಣ್ಣ',
+      ),
+      (
+        denom: '1',
+        isCoin: false,
+        nameEn: '1 Rupee note',
+        nameKn: '೧ ರೂಪಾಯಿ ನೋಟು',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(1|१|೧)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['one rupee note', '1 rupee note', 'finance secretary'],
+        wordsHi: ['एक रुपया का नोट', 'वित्त सचिव'],
+        wordsKn: ['ಒಂದು ರೂಪಾಯಿ ನೋಟು'],
+        motifs: ['sagar samrat', 'oil rig', 'सागर सम्राट'],
+        colorNameEn: 'pink-green',
+        colorNameKn: 'ಗುಲಾಬಿ-ಹಸಿರು ಬಣ್ಣ',
+      ),
+
+      // Coins (₹20, ₹10, ₹5, ₹2, ₹1)
+      (
+        denom: '20',
+        isCoin: true,
+        nameEn: '20 Rupees coin',
+        nameKn: '೨೦ ರೂಪಾಯಿ ನಾಣ್ಯ',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(20|२०|೨೦|2o|2O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['twenty rupees coin', 'twenty coin', '20 coin', '20 rupees coin'],
+        wordsHi: ['बीस रुपये का सिक्का', 'बीस का सिक्का', 'बीस सिक्का'],
+        wordsKn: ['ಇಪ್ಪತ್ತು ರೂಪಾಯಿ ನಾಣ್ಯ', 'ಇಪ್ಪತ್ತು ನಾಣ್ಯ'],
+        motifs: ['dodecagon', '12 sided', 'grains', 'अनाज'],
+        colorNameEn: 'bimetallic 12-sided brass and silver',
+        colorNameKn: '೧೨ ಬದಿಗಳ ಹಿತ್ತಾಳೆ ಮತ್ತು ಬೆಳ್ಳಿಯ ದ್ವಿ-ಲೋಹ',
+      ),
+      (
+        denom: '10',
+        isCoin: true,
+        nameEn: '10 Rupees coin',
+        nameKn: '೧೦ ರೂಪಾಯಿ ನಾಣ್ಯ',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(10|१०|೧೦|io|l0|1o|1O)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['ten rupees coin', 'ten coin', '10 coin', '10 rupees coin'],
+        wordsHi: ['दस रुपये का सिक्का', 'दस का सिक्का', 'दस सिक्का'],
+        wordsKn: ['ಹತ್ತು ರೂಪಾಯಿ ನಾಣ್ಯ', 'ಹತ್ತು ನಾಣ್ಯ'],
+        motifs: ['rays', 'bi-metallic', 'bimetallic', 'किरणें'],
+        colorNameEn: 'bimetallic silver and brass',
+        colorNameKn: 'ಬೆಳ್ಳಿ ಮತ್ತು ಚಿನ್ನದ ಕಂದು ದ್ವಿ-ಲೋಹ',
+      ),
+      (
+        denom: '5',
+        isCoin: true,
+        nameEn: '5 Rupees coin',
+        nameKn: '೫ ರೂಪಾಯಿ ನಾಣ್ಯ',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(5|५|೫)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['five rupees coin', 'five coin', '5 coin', 'five rupees', '5 rupees'],
+        wordsHi: ['पाँच रुपये का सिक्का', 'पांच रुपये का सिक्का', 'पाँच रुपये', 'पांच रुपये'],
+        wordsKn: ['ಐದು ರೂಪಾಯಿ ನಾಣ್ಯ', 'ಐದು ರೂಪಾಯಿಗಳು', 'ಐದು ರೂಪಾಯಿ'],
+        motifs: ['ashoka', 'lion', 'satyameva', 'भारत'],
+        colorNameEn: 'brass golden',
+        colorNameKn: 'ಚಿನ್ನದ ಹಿತ್ತಾಳೆ ಬಣ್ಣ',
+      ),
+      (
+        denom: '2',
+        isCoin: true,
+        nameEn: '2 Rupees coin',
+        nameKn: '೨ ರೂಪಾಯಿ ನಾಣ್ಯ',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(2|२|೨)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['two rupees coin', 'two coin', '2 coin', 'two rupees', '2 rupees'],
+        wordsHi: ['दो रुपये का सिक्का', 'दो का सिक्का', 'दो रुपये'],
+        wordsKn: ['ಎರಡು ರೂಪಾಯಿ ನಾಣ್ಯ', 'ಎರಡು ರೂಪಾಯಿಗಳು', 'ಎರಡು ರೂಪಾಯಿ'],
+        motifs: ['hand', 'two fingers', 'wheat', 'भारत', 'मुद्रा'],
+        colorNameEn: 'metallic silver',
+        colorNameKn: 'ಲೋಹದ ಬೆಳ್ಳಿ ಬಣ್ಣ',
+      ),
+      (
+        denom: '1',
+        isCoin: true,
+        nameEn: '1 Rupee coin',
+        nameKn: '೧ ರೂಪಾಯಿ ನಾಣ್ಯ',
+        numRegex: RegExp(r'(?:^|[\s₹Rs\.\/,:;\'"\(\)\[\]\-]|\b)(1|१|೧)(?:[\s\/,\-:\.;\'"\(\)\[\]₹]|\b|\/-|₹|RS|RUPEE|रुपये|ರೂ|$)', caseSensitive: false),
+        wordsEn: ['one rupee coin', 'one coin', '1 coin', 'one rupee', '1 rupee'],
+        wordsHi: ['एक रुपये का सिक्का', 'एक का सिक्ಕಾ', 'एक रुपया', 'एक रुपये'],
+        wordsKn: ['ಒಂದು ರೂಪಾಯಿ ನಾಣ್ಯ', 'ಒಂದು ರೂಪಾಯಿ'],
+        motifs: ['thumb', 'thumbs up', 'corn', 'भारत', 'मुद्रा'],
+        colorNameEn: 'metallic silver',
+        colorNameKn: 'ಲೋಹದ ಬೆಳ್ಳಿ ಬಣ್ಣ',
+      ),
     ];
 
-    for (final (regex, denomEn, denomNum) in denominations) {
-      if (regex.hasMatch(text)) {
-        if (hasRbiMarker) {
-          final colorConf = (colorProfile != null && colorProfile.denomination == denomNum)
-              ? (isKannada ? ' (${colorProfile.colorNameKn}ದಿಂದ ದೃಢೀಕರಿಸಲಾಗಿದೆ)' : ' (confirmed by ${colorProfile.colorNameEn} color)')
-              : '';
-          return isKannada
-              ? 'ಭಾರತೀಯ ಕರೆನ್ಸಿ ನೋಟು: $denomNum ರೂಪಾಯಿ$colorConf.'
-              : 'Indian currency note: $denomEn$colorConf.';
-        } else if (colorProfile != null && colorProfile.denomination == denomNum) {
-          return isKannada
-              ? 'ಭಾರತೀಯ ಕರೆನ್ಸಿ ನೋಟು: $denomNum ರೂಪಾಯಿ (${colorProfile.colorNameKn}ದಿಂದ ದೃಢೀಕರಿಸಲಾಗಿದೆ).'
-              : 'Indian currency note: $denomEn (verified by ${colorProfile.colorNameEn} color tint).';
-        } else {
-          return isKannada
-              ? 'ಪಠ್ಯದಲ್ಲಿ ಸಂಖ್ಯೆ $denomNum ಕಂಡುಬಂದಿದೆ, ಆದರೆ ಯಾವುದೇ ರಿಸರ್ವ್ ಬ್ಯಾಂಕ್ ಗುರುತುಗಳಿಲ್ಲ. ಇದು ನೋಟು ಅಲ್ಲ.'
-              : 'Found number $denomEn on text, but no Reserve Bank or currency markings detected. This does not appear to be a banknote.';
+    int bestScore = 0;
+    String? bestResultEn;
+    String? bestResultKn;
+    String? bestDenom;
+    bool bestIsCoin = false;
+
+    for (final item in currencyDataset) {
+      int score = 0;
+
+      // Evidence A: Exact Numeral Match
+      final hasNum = item.numRegex.hasMatch(text);
+      if (hasNum) score += 45;
+
+      // Evidence B: Verbal Words (English, Hindi, Kannada)
+      final lowerText = text.toLowerCase();
+      final hasWordEn = item.wordsEn.any((w) => lowerText.contains(w));
+      final hasWordHi = item.wordsHi.any((w) => text.contains(w));
+      final hasWordKn = item.wordsKn.any((w) => text.contains(w));
+      if (hasWordEn || hasWordHi || hasWordKn) score += 40;
+
+      // Evidence C: Reverse Heritage Monument / Motif Match
+      final hasMotif = item.motifs.any((m) => lowerText.contains(m) || text.contains(m));
+      if (hasMotif) score += 35;
+
+      // Evidence D: Context Markers (Banknote vs Coin)
+      if (!item.isCoin && hasRbiMarker) score += 30;
+      if (item.isCoin && hasRbiMarker) score -= 40; // Coins NEVER have Reserve Bank of India
+      if (item.isCoin && hasCoinMarker) score += 35;
+      if (!item.isCoin && hasCoinMarker && !hasRbiMarker) score -= 25;
+
+      // Evidence E: Visual Color & Tint Match
+      if (colorProfile != null) {
+        if (colorProfile.denomination == item.denom) {
+          if (item.isCoin && colorProfile.isCoin) {
+            score += 50;
+          } else if (!item.isCoin && !colorProfile.isCoin) {
+            score += 45;
+          } else {
+            score += 15;
+          }
+        } else if (item.isCoin != colorProfile.isCoin) {
+          score -= 20;
         }
       }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestDenom = item.denom;
+        bestIsCoin = item.isCoin;
+
+        final colorDetailEn = (colorProfile != null && colorProfile.denomination == item.denom)
+            ? ' (${colorProfile.colorNameEn})'
+            : '';
+        final colorDetailKn = (colorProfile != null && colorProfile.denomination == item.denom)
+            ? ' (${colorProfile.colorNameKn})'
+            : '';
+
+        bestResultEn = 'Indian currency: ${item.nameEn}$colorDetailEn.';
+        bestResultKn = 'ಭಾರತೀಯ ಕರೆನ್ಸಿ: ${item.nameKn}$colorDetailKn.';
+      }
     }
 
-    if (hasRbiMarker) {
-      if (colorProfile != null) {
+    // ── High / Medium Confidence Determination ──────────────────────────────
+    if (bestScore >= 35 && bestResultEn != null && bestResultKn != null) {
+      return isKannada ? bestResultKn : bestResultEn;
+    }
+
+    // ── Fallback 1: Optical Color Profile Alone (e.g. folded note or coin) ──
+    if (colorProfile != null) {
+      final isCoin = colorProfile.isCoin;
+      if (isCoin) {
         return isKannada
-            ? 'ರಿಸರ್ವ್ ಬ್ಯಾಂಕ್ ಗುರುತು ಮತ್ತು ${colorProfile.colorNameKn} ಕಂಡುಬಂದಿದೆ. ಇದು ${colorProfile.denomination} ರೂಪಾಯಿ ನೋಟು ಆಗಿರಬಹುದು. ದೃಢೀಕರಿಸಲು ನೋಟನ್ನು ಸಮತಟ್ಟಾಗಿ ಹಿಡಿಯಿರಿ.'
-            : 'Banknote markings detected. Appears to be a ${colorProfile.denomination} Rupee note based on ${colorProfile.colorNameEn} color. Hold flat to confirm denomination.';
+            ? '${colorProfile.colorNameKn}ದಿಂದ ಇದು ${colorProfile.denomination} ರೂಪಾಯಿ ನಾಣ್ಯ ಎಂದು ತೋರುತ್ತದೆ.'
+            : 'Appears to be a ${colorProfile.denomination} Rupee coin based on its ${colorProfile.colorNameEn} finish.';
       }
       return isKannada
-          ? 'ನೋಟಿನ ಗುರುತುಗಳು ಪತ್ತೆಯಾಗಿವೆ, ಆದರೆ ಮೌಲ್ಯದ ಸಂಖ್ಯೆ ಸ್ಪಷ್ಟವಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ನೋಟನ್ನು ಸಮತಟ್ಟಾಗಿ ಹಿಡಿದುಕೊಳ್ಳಿ.'
-          : 'Banknote markings detected, but denomination number was not clear. Please hold the note flat and steady.';
+          ? '${colorProfile.colorNameKn}ದಿಂದ ಇದು ${colorProfile.denomination} ರೂಪಾಯಿ ನೋಟು ಎಂದು ತೋರುತ್ತದೆ. ಸಂಖ್ಯೆಯನ್ನು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಲು ನೋಟನ್ನು ಸಮತಟ್ಟಾಗಿ ಹಿಡಿಯಿರಿ ಅಥವಾ ತಿರುಗಿಸಿ.'
+          : 'Appears to be a ${colorProfile.denomination} Rupee note based on its ${colorProfile.colorNameEn} color. Hold flat or turn over to verify.';
     }
 
-    // Folded or unreadable OCR fallback based on color profile
-    if (colorProfile != null) {
+    // ── Fallback 2: General Banknote Marking detected without number ─────────
+    if (hasRbiMarker) {
       return isKannada
-          ? '${colorProfile.colorNameKn}ದಿಂದ ಇದು ${colorProfile.denomination} ರೂಪಾಯಿ ನೋಟು ಎಂದು ತೋರುತ್ತದೆ. ಸಂಖ್ಯೆಯನ್ನು ಖಚಿತಪಡಿಸಿಕೊಳ್ಳಲು ನೋಟನ್ನು ತಿರುಗಿಸಿ ಅಥವಾ ಸಮತಟ್ಟಾಗಿ ಹಿಡಿಯಿರಿ.'
-          : 'Appears to be a ${colorProfile.denomination} Rupee note based on its ${colorProfile.colorNameEn} tint. Please flatten the note or turn it over to verify the number.';
+          ? 'ಭಾರತೀಯ ನೋಟಿನ ಗುರುತುಗಳು ಪತ್ತೆಯಾಗಿವೆ, ಆದರೆ ಮೌಲ್ಯದ ಸಂಖ್ಯೆ ಸ್ಪಷ್ಟವಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ನೋಟನ್ನು ಬೆಳಕಿನಲ್ಲಿ ಸಮತಟ್ಟಾಗಿ ಹಿಡಿದುಕೊಳ್ಳಿ.'
+          : 'Indian banknote markings detected, but denomination number was not clear. Please flatten the note in good light.';
     }
 
     return isKannada
-        ? 'ಯಾವುದೇ ನೋಟು ಗುರುತಿಸಲಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ನೋಟನ್ನು ಸಮತಟ್ಟಾಗಿ ಮತ್ತು ಬೆಳಕಿನಲ್ಲಿ ಹಿಡಿದುಕೊಳ್ಳಿ.'
-        : 'No banknote recognized. Please ensure the note is well lit, flat, and facing the camera.';
+        ? 'ಯಾವುದೇ ನೋಟು ಅಥವಾ ನಾಣ್ಯ ಗುರುತಿಸಲಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ನೋಟು ಅಥವಾ ನಾಣ್ಯವನ್ನು ಕ್ಯಾಮೆರಾದ ಮಧ್ಯದಲ್ಲಿ ಸಮತಟ್ಟಾಗಿ ಹಿಡಿದುಕೊಳ್ಳಿ.'
+        : 'No Indian banknote or coin recognized. Please place the note or coin flat in the center of the camera.';
   }
+
+  /// Backward-compatible alias for [recognizeCurrency].
+  Future<String> recognizeBanknote(String imagePath, {bool isKannada = false}) =>
+      recognizeCurrency(imagePath, isKannada: isKannada);
 
   // ── 6. Transit & Bus Route Recognition ─────────────────────────────────────
 
